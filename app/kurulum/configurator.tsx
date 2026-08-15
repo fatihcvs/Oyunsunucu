@@ -204,10 +204,13 @@ export function Configurator({
               </label>
               <fieldset className="configFieldset regionFieldset">
                 <legend>Dağıtım bölgesi</legend>
+                {/* İlk betada tek bölge var; seçilecek bir alternatif olmadığı için
+                    odaklanılabilir ama hiçbir şey yapmayan bir buton yerine
+                    salt-okunur bir bilgi satırı olarak sunulur. */}
                 {HOSTING_REGIONS.map((item) => (
-                  <button aria-pressed={true} className="regionOption selected" key={item.id} type="button">
+                  <div className="regionOption selected" key={item.id}>
                     <span>{item.flag}</span><div><b>{item.name}</b><small>{item.location} · {item.note}</small></div><em>DAHİL</em><Icon name="check" size={16} />
-                  </button>
+                  </div>
                 ))}
                 <div className="futureRegion"><span>🇹🇷</span><div><b>İstanbul</b><small>UDP destekli ikinci sağlayıcı fazında</small></div><em>PLANLANIYOR</em><Icon name="lock" size={15} /></div>
               </fieldset>

@@ -4,7 +4,9 @@ import {
   BACKUP_MONTHLY_PRICE,
   DEFAULT_SERVER_DRAFT,
   HOSTING_PLANS,
+  HOSTING_REGIONS,
   calculateMonthlyPrice,
+  getPlan,
   isServerDraft,
 } from "../lib/catalog.ts";
 
@@ -33,6 +35,18 @@ test("daily backup is added exactly once", () => {
 
   assert.equal(withoutBackup, 899);
   assert.equal(withBackup, 899 + BACKUP_MONTHLY_PRICE);
+});
+
+test("region surcharge is part of the single price calculation", () => {
+  for (const region of HOSTING_REGIONS) {
+    const plan = getPlan("starter-4");
+    const total = calculateMonthlyPrice({
+      planId: plan.id,
+      regionId: region.id,
+      backups: false,
+    });
+    assert.equal(total, plan.price + region.surcharge, region.id);
+  }
 });
 
 test("stored drafts are rejected when catalog identifiers are invalid", () => {

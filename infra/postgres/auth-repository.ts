@@ -210,11 +210,15 @@ export class PostgresAuthRepository {
         consent_version: unknown;
         return_to: unknown;
       }>(
+        // Teslim işareti e-posta gönderildikten sonra yazılır. 'pending' de kabul
+        // edilir; başarısız teslim zaten `revoked_at` ile kapatıldığı için bu,
+        // kullanıcının elindeki geçerli bir bağlantının yarışa kurban gitmesini
+        // önlerken tek kullanım ve iptal güvencelerini korur.
         `UPDATE verification_tokens
             SET consumed_at = $2
           WHERE token_hash = decode($1, 'hex')
             AND purpose IN ('signin', 'verify_email')
-            AND delivery_status = 'sent'
+            AND delivery_status IN ('pending', 'sent')
             AND consumed_at IS NULL
             AND revoked_at IS NULL
             AND expires_at > $2
@@ -231,28 +235,37 @@ export class PostgresAuthRepository {
         [`identity:${email}`],
       );
 
+      // Durum filtresi sorgunun içinde değil: kilitli bir hesabın e-postası
+      // benzersizlik indeksini hâlâ tuttuğu için, filtrelenirse kayıt dalı
+      // çakışan bir INSERT denerdi. Önce satırı kilitle, sonra durumu değerlendir.
       let userResult = await transaction.query<{
         id: unknown;
         email: unknown;
         display_name: unknown;
+        status: unknown;
       }>(
-        `SELECT id::text AS id, email, display_name
+        `SELECT id::text AS id, email, display_name, status
            FROM users
-          WHERE email = $1 AND deleted_at IS NULL AND status = 'active'
+          WHERE email = $1 AND deleted_at IS NULL
           FOR UPDATE`,
         [email],
       );
 
-      if (userResult.rows.length === 0 && purpose === "verify_email") {
+      const existingUser = userResult.rows[0];
+      if (existingUser && existingUser.status !== "active") return null;
+
+      if (!existingUser) {
+        if (purpose !== "verify_email") return null;
         if (typeof challenge.requested_display_name !== "string") return null;
         userResult = await transaction.query<{
           id: unknown;
           email: unknown;
           display_name: unknown;
+          status: unknown;
         }>(
           `INSERT INTO users (email, display_name, email_verified_at)
            VALUES ($1, $2, $3)
-           RETURNING id::text AS id, email, display_name`,
+           RETURNING id::text AS id, email, display_name, status`,
           [email, challenge.requested_display_name, input.now],
         );
       }

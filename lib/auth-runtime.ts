@@ -14,14 +14,6 @@ export type AuthRuntimeReadiness = {
   missing: string[];
 };
 
-const REQUIRED_ENVIRONMENT_NAMES = [
-  "DATABASE_URL",
-  "AUTH_SECRET",
-  "EMAIL_FROM",
-  "DISCORD_CLIENT_ID",
-  "DISCORD_CLIENT_SECRET",
-] as const;
-
 function valueOf(environment: AuthEnvironment, name: string) {
   const value = environment[name];
   return typeof value === "string" ? value.trim() : "";
@@ -53,19 +45,26 @@ function hasMinimumSecretEntropy(value: string) {
 export function getAuthRuntimeReadiness(environment: AuthEnvironment): AuthRuntimeReadiness {
   const database = isPostgresUrl(valueOf(environment, "DATABASE_URL"));
   const sessionSecret = hasMinimumSecretEntropy(valueOf(environment, "AUTH_SECRET"));
-  const emailDelivery = isEmailAddress(valueOf(environment, "EMAIL_FROM")) && (
-    valueOf(environment, "RESEND_API_KEY").length >= 12 ||
-    valueOf(environment, "POSTMARK_SERVER_TOKEN").length >= 12
-  );
+  const emailSender = isEmailAddress(valueOf(environment, "EMAIL_FROM"));
+  const emailApiKey = valueOf(environment, "RESEND_API_KEY").length >= 12 ||
+    valueOf(environment, "POSTMARK_SERVER_TOKEN").length >= 12;
+  const emailDelivery = emailSender && emailApiKey;
   const discordOAuth = valueOf(environment, "DISCORD_CLIENT_ID").length > 0 &&
     valueOf(environment, "DISCORD_CLIENT_SECRET").length >= 12;
   const magicLink = database && sessionSecret && emailDelivery;
   const discord = database && sessionSecret && discordOAuth;
   const ready = magicLink || discord;
 
-  const missing: string[] = REQUIRED_ENVIRONMENT_NAMES.filter((name) => !valueOf(environment, name));
-  if (!valueOf(environment, "RESEND_API_KEY") && !valueOf(environment, "POSTMARK_SERVER_TOKEN")) {
-    missing.push("RESEND_API_KEY_OR_POSTMARK_SERVER_TOKEN");
+  // Giriş için e-posta veya Discord yollarından biri yeterlidir. Bu yüzden bir
+  // sağlayıcı tamamlandığında diğerinin değişkenleri eksik olarak raporlanmaz.
+  const missing: string[] = [];
+  if (!database) missing.push("DATABASE_URL");
+  if (!sessionSecret) missing.push("AUTH_SECRET");
+  if (!emailDelivery && !discordOAuth) {
+    if (!emailSender) missing.push("EMAIL_FROM");
+    if (!emailApiKey) missing.push("RESEND_API_KEY_OR_POSTMARK_SERVER_TOKEN");
+    if (!valueOf(environment, "DISCORD_CLIENT_ID")) missing.push("DISCORD_CLIENT_ID");
+    if (!valueOf(environment, "DISCORD_CLIENT_SECRET")) missing.push("DISCORD_CLIENT_SECRET");
   }
 
   return {
@@ -76,12 +75,26 @@ export function getAuthRuntimeReadiness(environment: AuthEnvironment): AuthRunti
   };
 }
 
-export function publicAuthRuntimeStatus(environment: AuthEnvironment) {
+export type PublicAuthRuntimeStatus = {
+  state: "adapter_required" | "configuration_required";
+  live: boolean;
+  checks: AuthRuntimeReadiness["checks"] & { postgresAdapter: boolean };
+  missing: string[];
+};
+
+/**
+ * `/api/auth/status` gövdesinin tek kaynağıdır. Yalnızca boolean hazırlık
+ * sinyalleri ve eksik değişken adları döner; hiçbir secret değeri sızmaz.
+ */
+export function publicAuthRuntimeStatus(environment: AuthEnvironment): PublicAuthRuntimeStatus {
   const readiness = getAuthRuntimeReadiness(environment);
+  // Sürücü adaptörü yayın ortamına bağlanana kadar canlı giriş kapalıdır.
+  const postgresAdapter = false;
+
   return {
-    state: readiness.state,
-    ready: readiness.ready,
-    checks: readiness.checks,
+    state: readiness.ready ? "adapter_required" : "configuration_required",
+    live: readiness.ready && postgresAdapter,
+    checks: { ...readiness.checks, postgresAdapter },
     missing: readiness.missing,
   };
 }

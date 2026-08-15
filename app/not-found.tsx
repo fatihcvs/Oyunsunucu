@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Icon } from "./_components/icon";
 
+// not-found.tsx bir route segmenti olmadığı için `metadata` export'u yok sayılır.
+// Bu sayfa layout'un site düzeyi varsayılanlarını devralır: ana sayfaya ait
+// başlık veya canonical taşımaz, indekslenmemesi HTTP 404 durumuyla bildirilir.
 export default function NotFound() {
   return (
     <main className="notFoundPage">

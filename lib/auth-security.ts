@@ -147,10 +147,11 @@ export function evaluateFixedWindowRateLimit(
   };
 }
 
-export async function createRateLimitBucketKey(scope: string, discriminator: string) {
-  return sha256Hex(`${scope.trim().toLowerCase()}:${discriminator.trim().toLowerCase()}`);
-}
-
+/**
+ * Oran sınırlama bucket anahtarının tek üretim yoludur. Pepper'sız bir SHA-256
+ * varyantı bilerek sunulmaz; ham e-posta/IP alanı küçük olduğu için sırsız özet
+ * kaba kuvvetle geri çözülebilirdi.
+ */
 export async function createSecretRateLimitBucketKey(
   secret: string,
   scope: string,

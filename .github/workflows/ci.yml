@@ -1,0 +1,35 @@
+name: CI
+
+# Faz planındaki "lint, test ve üretim derlemesi geçmeli" çıkış kapısını
+# elle çalıştırmaya bırakmadan her değişiklikte zorunlu kılar.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    name: Lint, typecheck ve üretim testleri
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # `npm test` önce üretim derlemesini çalıştırır, sonra derlenmiş Worker
+      # üzerinde HTML/metadata ve sözleşme testlerini uygular.
+      - name: Üretim derlemesi ve testler
+        run: npm test

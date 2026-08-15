@@ -50,8 +50,13 @@ verir.
   aktarım makbuzlarını ekler. Migration henüz canlı Railway veritabanına
   uygulanmadı.
 - `0003_magic_link_flows.sql` güvenli dönüş yolu, kayıt profili ve
-  `pending → sent | failed` teslim durumunu ekler. Yalnızca `sent` durumundaki,
-  süresi geçmemiş ve iptal edilmemiş bağlantılar tüketilebilir.
+  `pending → sent | failed` teslim durumunu ekler. Tüketim `pending` ve `sent`
+  durumlarını kabul eder; teslimi başarısız olan bağlantı `revoked_at` ile
+  kapatıldığı için iptal güvencesi korunurken, teslim işareti yazılmadan önce
+  tıklanan geçerli bir bağlantı yarışa kurban gitmez.
+- Silinmemiş ancak `active` olmayan (örneğin kilitli) bir hesabın adresine gelen
+  bağlantı, benzersizlik indeksiyle çakışmak yerine sessizce reddedilir; kimlik
+  satırı karar verilmeden önce `FOR UPDATE` ile kilitlenir.
 - `infra/postgres/auth-repository.ts` sürücüden bağımsız, parametreli SQL
   repository'sidir. Bağlantı tüketimi, kullanıcı doğrulaması, hesap eşlemesi,
   sürümlü onay, oturum ve audit kaydı tek transaction içinde çalışır.
@@ -64,6 +69,9 @@ verir.
   belirteci yalnızca çerez route'una döner.
 - `/api/auth/status` yalnızca boolean hazırlık sinyalleri ve eksik değişken
   adlarını döndürür; hiçbir secret değeri açığa çıkarmaz ve yanıtı cache'lemez.
+  Gövdenin tek kaynağı `publicAuthRuntimeStatus`'tır. Giriş için e-posta veya
+  Discord yollarından biri yeterli olduğundan, bir sağlayıcı tamamlandığında
+  diğerinin değişkenleri `missing` içinde raporlanmaz.
 - `/api/auth/email/start` exact-origin ve gövde sınırı uygular. Canlı bağlantı
   yokken kişisel veriyi okumadan `AUTH_NOT_CONFIGURED`; ortam hazır ancak sürücü
   bağlanmamışsa `AUTH_ADAPTER_NOT_BOUND` döndürür.

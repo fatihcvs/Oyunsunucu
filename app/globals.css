@@ -565,7 +565,6 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .textField > em { color: #e37171; font-size: 7.5px; font-style: normal; }
 .regionFieldset { margin-top: 23px; }
 .regionOption,.futureRegion { width: 100%; min-height: 67px; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.018); text-align: left; }
-.regionOption { cursor: pointer; }
 .regionOption > span,.futureRegion > span { font-size: 21px; }
 .regionOption > div,.futureRegion > div { display: grid; gap: 4px; }
 .regionOption b,.futureRegion b { font-size: 10px; }

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  DEFAULT_SERVER_DRAFT,
+  calculateMonthlyPrice,
+  formatTry,
+} from "../lib/catalog.ts";
 
 const developmentPreviewMeta =
   /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
@@ -56,6 +61,44 @@ test("renders a descriptive Turkish home title and website structured data", asy
   assert.match(html, /"@type":"WebSite"/);
   assert.match(html, /Minecraft sunucu kiralama/);
   assert.match(html, /Terraria sunucu kiralama/);
+});
+
+test("prices the home page with the shared catalog calculator and formatter", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/", { headers: { accept: "text/html" } }),
+    workerEnv,
+    workerContext,
+  );
+
+  const html = await response.text();
+  const expected = formatTry(
+    calculateMonthlyPrice({
+      planId: DEFAULT_SERVER_DRAFT.planId,
+      regionId: DEFAULT_SERVER_DRAFT.regionId,
+      backups: DEFAULT_SERVER_DRAFT.backups,
+    }),
+  );
+
+  // Faz 0 çıkış kapısı: aynı paket her yüzeyde aynı tutarı ve aynı biçimi gösterir.
+  assert.match(html, new RegExp(`TAHMİNİ AYLIK</small><b>${expected}`));
+  assert.doesNotMatch(html, /TAHMİNİ AYLIK<\/small><b>\d[\d.]* TL/);
+});
+
+test("keeps the 404 page off the home page identity", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/bulunmayan-sayfa", { headers: { accept: "text/html" } }),
+    workerEnv,
+    workerContext,
+  );
+
+  assert.equal(response.status, 404);
+  const html = await response.text();
+  // Bilinmeyen bir URL kendini ana sayfaya canonical'layamaz.
+  assert.doesNotMatch(html, /rel="canonical"/);
+  assert.doesNotMatch(html, /<title>Oyun Sunucusu Kiralama \| Minecraft/);
+  assert.match(html, /DÜNYA BULUNAMADI/);
 });
 
 test("renders the Minecraft search landing page with honest beta copy", async () => {

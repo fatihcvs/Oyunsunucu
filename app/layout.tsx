@@ -13,10 +13,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Sayfaya özel başlık, canonical ve Open Graph alanları ilgili route'ta tanımlanır;
+// burada yalnızca tüm sayfalar için geçerli olan site düzeyi varsayılanlar kalır.
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
   title: {
-    default: "Oyun Sunucusu Kiralama | Minecraft & Terraria | Riftory",
+    default: `${SITE_NAME} | Oyun Sunucusu Kiralama`,
     template: "%s | Riftory",
   },
   description: SITE_DESCRIPTION,
@@ -24,19 +26,13 @@ export const metadata: Metadata = {
   creator: SITE_NAME,
   publisher: SITE_NAME,
   category: "Oyun sunucusu barındırma",
-  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "tr_TR",
     siteName: SITE_NAME,
-    url: "/",
-    title: "Oyun Sunucusu Kiralama | Minecraft & Terraria | Riftory",
-    description: SITE_DESCRIPTION,
   },
   twitter: {
     card: "summary",
-    title: "Oyun Sunucusu Kiralama | Minecraft & Terraria | Riftory",
-    description: SITE_DESCRIPTION,
   },
   robots: {
     index: true,

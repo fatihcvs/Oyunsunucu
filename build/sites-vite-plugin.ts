@@ -27,7 +27,10 @@ export function sites(): Plugin {
     async closeBundle() {
       const outputDirectory = resolve(root, "dist", ".openai");
       const hostingConfig = resolve(root, ".openai", "hosting.json");
-      const drizzleSource = resolve(root, "drizzle");
+      // Uygulamanın gerçek şeması PostgreSQL'dir. Migration'lar
+      // infra/postgres/migrations altında tutulur; artifact bunları taşımalı ki
+      // yayın ortamındaki çalıştırıcı uygulanacak sürümleri görebilsin.
+      const migrationsSource = resolve(root, "infra", "postgres", "migrations");
 
       await rm(outputDirectory, { recursive: true, force: true });
       await mkdir(outputDirectory, { recursive: true });
@@ -35,8 +38,8 @@ export function sites(): Plugin {
       if (await exists(hostingConfig)) {
         await cp(hostingConfig, resolve(outputDirectory, "hosting.json"));
       }
-      if (await exists(drizzleSource)) {
-        await cp(drizzleSource, resolve(outputDirectory, "drizzle"), {
+      if (await exists(migrationsSource)) {
+        await cp(migrationsSource, resolve(outputDirectory, "migrations"), {
           recursive: true,
         });
       }

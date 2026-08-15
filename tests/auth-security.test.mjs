@@ -9,7 +9,6 @@ import {
   buildSessionCookie,
   createDeviceDraftImportCommand,
   createOpaqueToken,
-  createRateLimitBucketKey,
   createSecretRateLimitBucketKey,
   evaluateFixedWindowRateLimit,
   isAllowedMutationOrigin,
@@ -84,11 +83,7 @@ test("blocks attempts after the configured fixed-window limit", () => {
   assert.equal(blocked.retryAfterMs, policy.blockMs);
 });
 
-test("hashes rate-limit identities and produces idempotent draft import commands", async () => {
-  const bucket = await createRateLimitBucketKey("magic-link", " Player@Example.com ");
-  assert.match(bucket, /^[a-f0-9]{64}$/);
-  assert.doesNotMatch(bucket, /player/i);
-
+test("produces idempotent draft import commands", async () => {
   const input = {
     actorUserId: "d9d47d02-73c4-4d20-86f8-91b8c846ff25",
     importKey: "6bde3a42-64c1-4c9f-8b0a-1ce9cd53c413",

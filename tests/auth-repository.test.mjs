@@ -71,7 +71,7 @@ test("exchanges a delivered link, identity and session inside one transaction", 
       };
     }
     if (call.text.includes("FROM users")) {
-      return { rows: [{ id: "user-id", email: "player@example.com", display_name: "Oyuncu" }] };
+      return { rows: [{ id: "user-id", email: "player@example.com", display_name: "Oyuncu", status: "active" }] };
     }
     if (call.text.includes("INSERT INTO auth_sessions")) {
       return { rows: [{ id: "session-id", family_id: "family-id" }] };
@@ -100,11 +100,77 @@ test("exchanges a delivered link, identity and session inside one transaction", 
     displayName: "Oyuncu",
     returnTo: "/hesap",
   });
-  assert.ok(database.calls.some((call) => call.text.includes("delivery_status = 'sent'")));
+  assert.ok(database.calls.some((call) => call.text.includes("delivery_status IN ('pending', 'sent')")));
   assert.ok(database.calls.some((call) => call.text.includes("INSERT INTO audit_logs")));
   assert.ok(database.calls.some((call) => call.values.includes(challengeHash)));
   assert.ok(database.calls.some((call) => call.values.includes(sessionHash)));
   assert.ok(database.calls.every((call) => !call.text.includes(challengeHash) && !call.text.includes(sessionHash)));
+});
+
+test("refuses a locked identity instead of colliding with the email unique index", async () => {
+  const database = new RecordingDatabase((call) => {
+    if (call.text.includes("UPDATE verification_tokens")) {
+      return {
+        rows: [{
+          destination_email: "locked@example.com",
+          purpose: "verify_email",
+          requested_display_name: "Kilitli Oyuncu",
+          consent_version: "kvkk-iletisim-v1-2026-08-14",
+          return_to: "/panel",
+        }],
+      };
+    }
+    if (call.text.includes("FROM users")) {
+      return { rows: [{ id: "user-id", email: "locked@example.com", display_name: "Kilitli", status: "locked" }] };
+    }
+    return { rows: [] };
+  });
+
+  const result = await new PostgresAuthRepository(database).exchangeMagicLink({
+    challengeTokenHash: "b".repeat(64),
+    sessionTokenHash: "c".repeat(64),
+    sessionExpiresAt: new Date("2026-09-14T12:00:00Z"),
+    now: new Date("2026-08-15T12:00:00Z"),
+    ipAddress: null,
+    userAgent: null,
+  });
+
+  assert.equal(result, null);
+  assert.ok(!database.calls.some((call) => call.text.includes("INSERT INTO users")));
+  assert.ok(!database.calls.some((call) => call.text.includes("INSERT INTO auth_sessions")));
+});
+
+test("locks the identity row before deciding between sign-in and registration", async () => {
+  const database = new RecordingDatabase((call) => {
+    if (call.text.includes("UPDATE verification_tokens")) {
+      return {
+        rows: [{
+          destination_email: "player@example.com",
+          purpose: "signin",
+          requested_display_name: null,
+          consent_version: null,
+          return_to: "/panel",
+        }],
+      };
+    }
+    return { rows: [] };
+  });
+
+  const result = await new PostgresAuthRepository(database).exchangeMagicLink({
+    challengeTokenHash: "b".repeat(64),
+    sessionTokenHash: "c".repeat(64),
+    sessionExpiresAt: new Date("2026-09-14T12:00:00Z"),
+    now: new Date("2026-08-15T12:00:00Z"),
+    ipAddress: null,
+    userAgent: null,
+  });
+
+  // Bilinmeyen bir adrese gelen giriş bağlantısı hesap açmaz.
+  assert.equal(result, null);
+  const identityQuery = database.calls.find((call) => call.text.includes("FROM users"));
+  assert.match(identityQuery.text, /FOR UPDATE/);
+  assert.doesNotMatch(identityQuery.text, /status = 'active'/);
+  assert.ok(!database.calls.some((call) => call.text.includes("INSERT INTO users")));
 });
 
 test("serializes persistent rate-limit updates with a hashed advisory key", async () => {

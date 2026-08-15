@@ -39,6 +39,42 @@ test("requires a PostgreSQL URL, 32-byte secret and a complete email provider", 
   assert.equal(weak.ready, false);
 });
 
+test("stops reporting provider variables once one sign-in path is complete", () => {
+  const emailOnly = getAuthRuntimeReadiness(configuredEmailEnvironment);
+  assert.equal(emailOnly.ready, true);
+  // Giriş için e-posta yolu yeterli; Discord değişkenleri eksik sayılmamalı.
+  assert.deepEqual(emailOnly.missing, []);
+
+  const discordOnly = getAuthRuntimeReadiness({
+    DATABASE_URL: configuredEmailEnvironment.DATABASE_URL,
+    AUTH_SECRET: configuredEmailEnvironment.AUTH_SECRET,
+    DISCORD_CLIENT_ID: "1234567890",
+    DISCORD_CLIENT_SECRET: "discord-secret-value",
+  });
+  assert.equal(discordOnly.checks.discord, true);
+  assert.deepEqual(discordOnly.missing, []);
+
+  const nothingConfigured = getAuthRuntimeReadiness({});
+  assert.deepEqual(nothingConfigured.missing, [
+    "DATABASE_URL",
+    "AUTH_SECRET",
+    "EMAIL_FROM",
+    "RESEND_API_KEY_OR_POSTMARK_SERVER_TOKEN",
+    "DISCORD_CLIENT_ID",
+    "DISCORD_CLIENT_SECRET",
+  ]);
+});
+
+test("publishes one status shape for the endpoint and its consumers", async () => {
+  const status = publicAuthRuntimeStatus(configuredEmailEnvironment);
+  assert.equal(status.state, "adapter_required");
+  assert.equal(status.live, false);
+  assert.equal(status.checks.postgresAdapter, false);
+
+  const response = createAuthStatusResponse(configuredEmailEnvironment);
+  assert.deepEqual(await response.json(), status);
+});
+
 test("never returns environment secret values in the public readiness shape", async () => {
   const status = publicAuthRuntimeStatus(configuredEmailEnvironment);
   assert.doesNotMatch(JSON.stringify(status), /re_12345678901234567890|postgresql:\/\/riftory|ssssssss/);
