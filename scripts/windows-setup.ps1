@@ -154,9 +154,16 @@ Write-Ok 'Bagimliliklar kuruldu.'
 # --- 4. Dogrulama ----------------------------------------------------------
 
 Write-Step 'Kurulum dogrulaniyor'
-npm run doctor
-if ($LASTEXITCODE -ne 0) {
-    throw "Dogrulama basarisiz oldu (cikis kodu $LASTEXITCODE)."
+
+# doctor betigi yalnizca capraz platform komutlarini iceren dallarda bulunur.
+$packageScripts = (Get-Content (Join-Path $Path 'package.json') -Raw | ConvertFrom-Json).scripts
+if ($packageScripts.PSObject.Properties.Name -contains 'doctor') {
+    npm run doctor
+    if ($LASTEXITCODE -ne 0) {
+        throw "Dogrulama basarisiz oldu (cikis kodu $LASTEXITCODE)."
+    }
+} else {
+    Write-Warn "Bu dalda 'doctor' betigi yok; dogrulama atlandi."
 }
 
 # --- 5. Sonraki adimlar ----------------------------------------------------
