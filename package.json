@@ -12,6 +12,13 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit --pretty false",
+    "doctor": "node scripts/local.mjs doctor",
+    "dev:local": "node scripts/local.mjs dev",
+    "build:local": "node scripts/local.mjs build",
+    "start:local": "node scripts/local.mjs start",
+    "test:local": "node scripts/local.mjs test",
+    "lint:local": "node scripts/local.mjs lint",
+    "typecheck:local": "node scripts/local.mjs typecheck",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"

@@ -42,10 +42,25 @@ Mevcut yayın, ürün yüzünü hızlıca incelemek için Sites üzerinde çalı
 
 ## Geliştirme komutları
 
+Bulut derleme ajanı (Linux) için:
+
 - `npm run lint` — kaynak denetimi
 - `npm run typecheck` — TypeScript ve Worker bağlama sözleşmesi denetimi
 - `npm run dev` — yerel geliştirme sunucusu
 - `npm run build` — Sites üretim çıktısı ve artifact doğrulaması
 - `npm test` — üretim çıktısı ve HTML metadata testi
 
-Node.js `>=22.13.0` gereklidir.
+Kendi bilgisayarında (Windows, macOS, Linux) `:local` ekli karşılıkları kullan:
+
+- `npm run doctor` — Node sürümü ve bağımlılık durumu
+- `npm run dev:local` — geliştirme sunucusu
+- `npm run build:local` — üretim çıktısı ve artifact doğrulaması
+- `npm run test:local` — derleme ve testler
+- `npm run lint:local`, `npm run typecheck:local` — denetimler
+
+Eki olmayan komutlar `scripts/*.sh` üzerinden `flock`, GNU `timeout` ve `/proc`
+gerektirir; bunlar yalnızca Linux'ta bulunur. `:local` komutları aynı işi
+`scripts/local.mjs` ile taşınır biçimde yapar.
+
+Node.js `>=22.13.0` gereklidir. Bilgisayara kurulum adımları
+[`docs/LOCAL_SETUP.md`](docs/LOCAL_SETUP.md) dosyasındadır.
