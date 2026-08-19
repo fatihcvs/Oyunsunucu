@@ -382,11 +382,19 @@ Amaç: İlk gerçek müşteriyi kontrollü riskle kabul etmek.
 İşler:
 
 - Railway hard usage limit ve günlük maliyet uyarıları.
-  **Ölçülen bulgu (2026-08-19):** Railway oyun kapsayıcısına `MEMORY_LIMIT_GB: 8`
-  veriyor; yani "Mini 2 GB" paketinde bile kapsayıcı 8 GB'a kadar kullanabilir.
-  Gerçekte sınırlayan tek şey JVM heap'i (`MEMORY=1536M`). Panel bilinçli olarak
-  paket değerini gösterir, sağlayıcı limitini değil; ancak maliyet tarafında bu
-  bir aşırı-teslimat riskidir ve sert kaynak sınırı bu fazda kapatılmalıdır.
+  **Ölçülen bulgular (2026-08-19):**
+  1. Railway oyun kapsayıcısına `MEMORY_LIMIT_GB: 8` veriyor; yani "Mini 2 GB"
+     paketinde bile kapsayıcı 8 GB'a kadar kullanabilir. Gerçekte sınırlayan tek
+     şey JVM heap'idir. Panel bilinçli olarak paket değerini gösterir; ancak
+     maliyet tarafında bu bir aşırı-teslimat riskidir ve sert kaynak sınırı bu
+     fazda kapatılmalıdır.
+  2. Yeniden dağıtım sırasında Railway eski ve yeni kapsayıcıyı bir süre birlikte
+     çalıştırıyor; metrik serisinde gerçek değerin yaklaşık iki katı örnekler
+     görünüyor (ölçülen seri: `1.90 3.90 2.02 3.50 1.92 …`). Bu yüzden panel
+     "paket aşıldı" kararını tepe değere değil medyana bakarak verir; kapasite
+     planlaması da aynı tuzağa düşmemelidir.
+  3. 2 GB paketinde kararlı kullanım ~1.92 GB ölçüldü (heap 1.25 GB + off-heap).
+     Paket sınırının hemen altında; sert sınır konulacaksa bu pay dikkate alınmalı.
 - Sipariş başına tahmini marj ve gerçek sağlayıcı maliyeti
 - Sahipsiz kaynak, başarısız yedek ve uzun provisioning alarmı
 - Gizli anahtar rotasyonu, webhook secret ve erişim matrisi

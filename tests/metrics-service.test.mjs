@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createMetricsService, parsePlayerList } from "../lib/metrics-service.ts";
+import { createMetricsService, parsePlayerList, sustainedMemoryGb } from "../lib/metrics-service.ts";
 
 const TOKEN = "oturum-belirteci";
 const SERVER_ID = "11111111-1111-4111-8111-111111111111";
@@ -82,20 +82,47 @@ test("memory is reported against the plan, never the provider's container limit"
   assert.equal(view.cpu[0].value, 0.35);
 });
 
-test("usage past what the plan sells is flagged", async () => {
+test("usage that stays above the plan is flagged", async () => {
   const under = build();
   assert.equal((await under.service.readMetrics(TOKEN, SERVER_ID)).overPlan, false);
 
   const over = build({
     metrics: () => ({
       cpu: [],
-      memoryGb: [{ at: NOW.toISOString(), value: 2.4 }],
+      memoryGb: [2.4, 2.5, 2.45].map((value) => ({ at: NOW.toISOString(), value })),
       providerMemoryLimitGb: 8,
       sampledFrom: NOW.toISOString(),
       sampledTo: NOW.toISOString(),
     }),
   });
   assert.equal((await over.service.readMetrics(TOKEN, SERVER_ID)).overPlan, true);
+});
+
+test("a redeploy spike is not mistaken for a server outgrowing its plan", async () => {
+  // Measured in production: during a rolling redeploy the provider runs both
+  // containers, so two samples read roughly double the real figure.
+  const observed = [1.90, 3.90, 2.02, 3.50, 1.92, 1.94, 1.95, 1.94, 1.92, 1.90, 1.91, 1.92, 1.92];
+  assert.equal(sustainedMemoryGb(observed.map((value) => ({ value }))), 1.92);
+
+  const { service } = build({
+    metrics: () => ({
+      cpu: [],
+      memoryGb: observed.map((value) => ({ at: NOW.toISOString(), value })),
+      providerMemoryLimitGb: 8,
+      sampledFrom: NOW.toISOString(),
+      sampledTo: NOW.toISOString(),
+    }),
+  });
+  const view = await service.readMetrics(TOKEN, SERVER_ID);
+  assert.equal(view.overPlan, false, "geçiş sıçraması kalıcı aşım sayılmamalı");
+  // The spikes stay in the series: the chart shows what happened, the flag does not overreact.
+  assert.equal(view.memoryGb.length, observed.length);
+});
+
+test("the sustained level is the median, and an empty series is zero", () => {
+  assert.equal(sustainedMemoryGb([]), 0);
+  assert.equal(sustainedMemoryGb([{ value: 1 }, { value: 3 }]), 2);
+  assert.equal(sustainedMemoryGb([{ value: 5 }, { value: 1 }, { value: 3 }]), 3);
 });
 
 test("the window asked for is the last hour, ending now", async () => {

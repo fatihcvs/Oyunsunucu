@@ -16,11 +16,32 @@ export type ServerMetricsView = {
   /** The heap the runtime is actually started with, after the off-heap reserve. */
   heapMemoryGb: number;
   players: PlayerCount | null;
-  /** True when resident memory has passed what the plan sells. */
+  /** True when memory sits above what the plan sells, not merely spikes above it. */
   overPlan: boolean;
 };
 
 export const METRICS_WINDOW_MS = 60 * 60_000;
+
+/**
+ * The memory level a server actually sits at, as the median sample.
+ *
+ * Not the peak, and the reason is measured rather than theoretical: during a
+ * rolling redeploy the provider runs the old and new containers at once, so the
+ * series shows a sample at roughly twice the real figure. Reading the peak
+ * turned that transition into a permanent "over your plan" warning on a server
+ * comfortably inside its plan. The median ignores a couple of transition
+ * samples while still crossing the line if usage genuinely stays high.
+ */
+export function sustainedMemoryGb(points: MetricPointLike[]): number {
+  if (points.length === 0) return 0;
+  const sorted = points.map((point) => point.value).sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+type MetricPointLike = { value: number };
 
 /**
  * Parses Minecraft's `list` output.
@@ -104,7 +125,6 @@ export function createMetricsService(dependencies: MetricsServiceDependencies) {
       }
 
       const memoryGb = measured?.memoryGb ?? [];
-      const peak = memoryGb.reduce((highest, point) => Math.max(highest, point.value), 0);
 
       return {
         window: { from: from.toISOString(), to: to.toISOString() },
@@ -113,7 +133,7 @@ export function createMetricsService(dependencies: MetricsServiceDependencies) {
         planMemoryGb,
         heapMemoryGb,
         players: await readPlayers(server),
-        overPlan: peak > planMemoryGb,
+        overPlan: sustainedMemoryGb(memoryGb) > planMemoryGb,
       };
     },
   };
