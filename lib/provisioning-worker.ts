@@ -6,7 +6,7 @@ import { heapMegabytes } from "../infra/gameservers/runtime-catalog.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import { ProviderError, type GameServerProvider } from "../infra/gameservers/provider.ts";
 import type { ClaimedJob, PostgresProvisioningRepository } from "../infra/postgres/provisioning-repository.ts";
-import type { BackupStore } from "../infra/gameservers/volume-backups.ts";
+import { BackupError, type BackupStore } from "../infra/gameservers/volume-backups.ts";
 import type { GameConsole } from "../infra/gameservers/console-access.ts";
 
 export type WorkerDependencies = {
@@ -160,10 +160,21 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
       }
 
       try {
-        const created = await dependencies.backups.create({
-          serverId,
-          name: `${server.name} · ${now().toISOString().slice(0, 16).replace("T", " ")}`,
-        });
+        let created;
+        try {
+          created = await dependencies.backups.create({
+            serverId,
+            name: `${server.name} · ${now().toISOString().slice(0, 16).replace("T", " ")}`,
+          });
+        } catch (error) {
+          // A backup failure carries its own retryable flag — an unauthorised
+          // token or a missing volume will answer the same way five times, and
+          // retrying it just delays telling the operator what is wrong.
+          if (error instanceof BackupError) {
+            throw new ProviderError("create_backup", error.message, error.retryable);
+          }
+          throw error;
+        }
         if (!created) throw new ProviderError("create_backup", "Sağlayıcı yedek oluşturmadı.", true);
 
         await dependencies.repository.completeJob({

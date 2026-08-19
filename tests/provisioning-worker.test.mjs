@@ -3,6 +3,7 @@ import test from "node:test";
 import { createProvisioningWorker } from "../lib/provisioning-worker.ts";
 import { ProviderError } from "../infra/gameservers/provider.ts";
 import { DEFAULT_SERVER_DRAFT } from "../lib/catalog.ts";
+import { BackupError } from "../infra/gameservers/volume-backups.ts";
 
 const SERVER_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -244,4 +245,33 @@ test("a failed setup still condemns the server, because there is nothing running
   await worker.runOnce();
   assert.equal(failures[0].breaksServer, true);
   assert.match(failures[0].customerMessage, /Kurulum tamamlanamadı/);
+});
+
+test("an unauthorised backup fails once instead of retrying five times", async () => {
+  const failures = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test" },
+    console: undefined,
+    backups: {
+      async create() { throw new BackupError("create_backup", "Not Authorized", false); },
+    },
+    repository: {
+      async claimJob() {
+        return { jobId: "job-1", serverId: "server-1", kind: "create_backup", attempts: 1 };
+      },
+      async findServer() {
+        return { serverId: "server-1", name: "talatim", status: "suspended", gameId: "minecraft", softwareId: "paper", planId: "mini-2", regionId: "eu-west", settings: {} };
+      },
+      async failJob(input) {
+        failures.push(input);
+        return { retrying: false };
+      },
+    },
+  });
+
+  const retried = await worker.runOnce();
+  assert.equal(retried, false, "yetki hatası yeniden denenmemeli");
+  assert.equal(failures[0].breaksServer, false);
+  assert.match(failures[0].operatorDetail, /Not Authorized/);
 });

@@ -353,3 +353,22 @@ railway variables --service worker --set 'AUTH_SECRET=${{web.AUTH_SECRET}}'
 Konsol parolası yalnızca sunucu değişkenleri yeniden yazıldığında yerleşir; bu da
 bir ayar kaydı (`apply_settings`) veya paket değişikliği ile olur. Konsol var
 olmadan kurulmuş sunucular için panelden bir ayar kaydetmek yeterlidir.
+
+## Yedekleme için token yetkisi
+
+Panelin yedek alma özelliği Railway'in volume anlık görüntülerini kullanır.
+Mevcut `RAILWAY_API_TOKEN` bu iş için **yeterli değildir**: 2026-08-19'da ölçüldü,
+
+- `volumeInstanceBackupList` → çalışıyor (okuma)
+- `volumeInstanceBackupCreate` → `Not Authorized` (yazma)
+
+Yani token yedekleri listeleyebiliyor ama oluşturamıyor. Yedek alma özelliğinin
+çalışması için Railway'de volume yönetim yetkisi olan bir token gerekir; bu,
+hesap/takım kapsamlı bir token demektir.
+
+Token değiştirildikten sonra `web` **ve** `worker` servislerinin yeniden
+dağıtılması gerekir (bkz. yukarıdaki değişken yayılımı notu).
+
+Yetki yokken davranış bilinçlidir: yedek işi **bir kez** dener ve başarısız olur,
+sunucu `online` kalır, dünya kaydetmeye devam eder. Yetki hatası tekrarda
+düzelmeyeceği için beş kez denenmez.
