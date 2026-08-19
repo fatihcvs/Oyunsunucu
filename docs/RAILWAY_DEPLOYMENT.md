@@ -327,3 +327,29 @@ Yayın öncesi yapılan incelemede düzeltilenler ve verilen kararlar:
   yapılmadı — veritabanını internete açmamak bilinçli bir tercihtir.
 - **Railway Postgres'in public adresi yoktur.** Migration ve operasyon
   komutları `railway run` ile, yani Railway ağı içinden çalıştırılır.
+
+## Konsol (RCON) için ortam gereksinimi
+
+Panel konsolu, sunucu başına konsol parolasını `AUTH_SECRET`'ten türetir. Bu
+yüzden **hem `web` hem `worker`** aynı `AUTH_SECRET` değerini görmelidir:
+worker parolayı oyun kapsayıcısına yazar, web onu doğrulayarak bağlanır. Değerler
+ayrışırsa konsol `RCON_AUTH_REJECTED` döner.
+
+Tek kaynakta tutmak için worker'da Railway servis referansı kullanılır:
+
+```sh
+railway variables --service worker --set 'AUTH_SECRET=${{web.AUTH_SECRET}}'
+```
+
+İki operasyonel tuzak ölçüldü (2026-08-19):
+
+- `--skip-deploys` ile eklenen bir değişken **çalışan kapsayıcıya girmez**;
+  servis yeniden dağıtılana kadar eski ortamla çalışmaya devam eder.
+- `railway redeploy` bu ortamda sessizce hiçbir şey yapmadan çıkabilir. Değişkenin
+  gerçekten uygulandığını doğrulamanın güvenilir yolu `railway up --service <ad>`
+  ile yeniden dağıtmak ve ardından hedef serviste değişkeni aramaktır:
+  `railway variables --service game-<serverId> --kv | grep RCON`.
+
+Konsol parolası yalnızca sunucu değişkenleri yeniden yazıldığında yerleşir; bu da
+bir ayar kaydı (`apply_settings`) veya paket değişikliği ile olur. Konsol var
+olmadan kurulmuş sunucular için panelden bir ayar kaydetmek yeterlidir.
