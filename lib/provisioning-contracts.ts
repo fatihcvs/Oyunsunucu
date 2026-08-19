@@ -92,6 +92,18 @@ export function canCommandServer(status: ServerStatus, command: ServerCommand) {
   return COMMANDS_BY_STATUS[status]?.includes(SERVER_COMMANDS[command]) ?? false;
 }
 
+/**
+ * Whether a failed job means the server itself is broken.
+ *
+ * Only the jobs that decide whether the server exists at all. A failed backup,
+ * settings apply or resize leaves a server that is still running exactly as it
+ * was — marking it `failed` would tell the customer their server is down while
+ * players are on it, which is worse than the failure itself.
+ */
+export function failureBreaksServer(kind: JobKind) {
+  return kind === "create_server" || kind === "delete_server";
+}
+
 /** How long a worker owns a claimed job before another may take it over. */
 export const JOB_LEASE_MS = 5 * 60_000;
 export const JOB_MAX_ATTEMPTS = 5;

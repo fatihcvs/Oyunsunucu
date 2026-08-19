@@ -99,6 +99,11 @@ export type RetryJobOutcome =
   | { status: "queued"; jobId: string; serverId: string | null }
   | { status: "not_found" | "not_retryable" | "conflict" };
 
+export type AdminReconcileOutcome =
+  | { status: "aligned"; from: string; to: string }
+  | { status: "already_aligned"; state: string }
+  | { status: "not_found" };
+
 export type AdminBalanceOutcome =
   | { status: "applied"; balanceMinor: number; previousMinor: number }
   | { status: "user_not_found" | "insufficient_balance" }
@@ -715,6 +720,63 @@ export class PostgresAdminRepository {
       );
 
       return { status: "applied", balanceMinor: nextMinor, previousMinor };
+    });
+  }
+
+  /**
+   * Writes what the provider actually reports, bypassing the state machine.
+   *
+   * The state machine describes how a server moves through its own lifecycle;
+   * reconciliation is a different thing — it corrects a record that no longer
+   * matches reality. A failed side operation used to leave a running server
+   * marked `failed`, and no legal transition leads out of that. The audit entry
+   * records both the old and new state so a correction is never silent.
+   */
+  async reconcileServer(input: {
+    serverId: string;
+    observedStatus: string;
+    actorUserId: string;
+    now: Date;
+  }): Promise<AdminReconcileOutcome> {
+    return this.database.transaction(async (transaction) => {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`server-operation:${input.serverId}`],
+      );
+
+      const found = await transaction.query<Record<string, unknown>>(
+        `SELECT status FROM servers WHERE id = $1::uuid FOR UPDATE`,
+        [input.serverId],
+      );
+      const current = found.rows[0];
+      if (!current) return { status: "not_found" };
+
+      const from = String(current.status);
+      if (from === input.observedStatus) return { status: "already_aligned", state: from };
+
+      await transaction.query(
+        `UPDATE servers SET status = $2, updated_at = $3 WHERE id = $1::uuid`,
+        [input.serverId, input.observedStatus, input.now],
+      );
+      await transaction.query(
+        `INSERT INTO server_events
+           (server_id, kind, customer_message, operator_detail, occurred_at)
+         VALUES ($1::uuid, 'reconciled', $2, $3, $4)`,
+        [
+          input.serverId,
+          "Sunucu durumu sağlayıcıdaki gerçek durumla eşitlendi.",
+          `actor=${input.actorUserId} from=${from} to=${input.observedStatus}`,
+          input.now,
+        ],
+      );
+      await transaction.query(
+        `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, metadata, occurred_at)
+         VALUES ($1::uuid, 'admin.server.reconciled', 'server', $2,
+                 jsonb_build_object('from', $3::text, 'to', $4::text), $5)`,
+        [input.actorUserId, input.serverId, from, input.observedStatus, input.now],
+      );
+
+      return { status: "aligned", from, to: input.observedStatus };
     });
   }
 

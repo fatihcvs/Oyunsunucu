@@ -1,6 +1,7 @@
 import { getPlan } from "./catalog.ts";
 import { normalizeStoredSettings } from "./server-settings.ts";
 import { nextRunAt } from "./schedule-contracts.ts";
+import { failureBreaksServer } from "./provisioning-contracts.ts";
 import { heapMegabytes } from "../infra/gameservers/runtime-catalog.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import { ProviderError, type GameServerProvider } from "../infra/gameservers/provider.ts";
@@ -22,8 +23,11 @@ export type WorkerDependencies = {
 
 const CUSTOMER_MESSAGES = {
   online: "Sunucun hazır ve bağlanabilirsin.",
-  retrying: "Kurulum beklenenden uzun sürüyor, yeniden deneniyor.",
+  retrying: "İşlem beklenenden uzun sürüyor, yeniden deneniyor.",
   dead: "Kurulum tamamlanamadı. Destek ekibi bilgilendirildi ve ücretin güvende.",
+  // A side operation that failed leaves the server itself untouched, and the
+  // customer should be told that rather than that their server is gone.
+  deadSideEffect: "İşlem tamamlanamadı. Sunucun çalışmaya devam ediyor; destek ekibi bilgilendirildi.",
 } as const;
 
 /**
@@ -302,7 +306,10 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
           serverId: job.serverId,
           attempts,
           operatorDetail: detail,
-          customerMessage: attempts === job.attempts ? CUSTOMER_MESSAGES.retrying : CUSTOMER_MESSAGES.dead,
+          customerMessage: attempts === job.attempts
+            ? CUSTOMER_MESSAGES.retrying
+            : failureBreaksServer(job.kind) ? CUSTOMER_MESSAGES.dead : CUSTOMER_MESSAGES.deadSideEffect,
+          breaksServer: failureBreaksServer(job.kind),
           now: now(),
         });
         return outcome.retrying;

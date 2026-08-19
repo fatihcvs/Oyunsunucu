@@ -2,6 +2,7 @@ import type { ActiveSessionResult } from "../infra/postgres/auth-repository.ts";
 import type {
   AdminBalanceOutcome,
   AdminDashboardData,
+  AdminReconcileOutcome,
   AdminPlanChangeOutcome,
   AdminProvisionServerOutcome,
   AdminRole,
@@ -69,6 +70,12 @@ export interface AdminRepository {
     actorUserId: string;
     now: Date;
   }): Promise<AdminPlanChangeOutcome>;
+  reconcileServer(input: {
+    serverId: string;
+    observedStatus: string;
+    actorUserId: string;
+    now: Date;
+  }): Promise<AdminReconcileOutcome>;
   adjustBalance(input: {
     userId: string;
     amountMinor: number;
@@ -177,6 +184,8 @@ export function createAdminService(dependencies: {
   auth: { authenticateSession(rawToken: string): Promise<ActiveSessionResult | null> };
   repository: AdminRepository;
   memberships: AdminMembershipRepository;
+  /** Asks the provider what a server is actually doing; absent, reconciliation is off. */
+  observeServer?: (serverId: string) => Promise<{ reachable: boolean } | null>;
   now?: () => Date;
   onOperationalError?: (error: unknown) => void;
 }) {
@@ -333,6 +342,52 @@ export function createAdminService(dependencies: {
           monthlyDifference: check.change.monthlyDifference,
           monthlyAfter: check.change.monthlyAfter,
           message: `Paket ${check.change.to.label} olarak güncellendi; aylık fark ${check.change.monthlyDifference} TL. Tahsilat yapılmadı.`,
+        };
+      });
+    },
+
+    /**
+     * Corrects a server record that no longer matches the provider.
+     *
+     * The provider is asked directly: if it still hands back a connection, the
+     * server is up whatever the database says. This exists because a record can
+     * drift — a failed side operation used to mark a running server `failed`,
+     * and no legal transition leads back out of that state.
+     */
+    async reconcileServer(rawToken: string, input: { serverId: unknown }) {
+      return runOperational(async () => {
+        const { session, role } = await authorize(rawToken);
+        if (role === "support") {
+          throw new AdminFlowError(403, "ADMIN_WRITE_REQUIRED", "Destek rolü durum düzeltemez.");
+        }
+        if (!dependencies.observeServer) {
+          throw new AdminFlowError(503, "RECONCILE_UNAVAILABLE", "Sağlayıcı durumu bu ortamda okunamıyor.");
+        }
+        const serverId = typeof input.serverId === "string" ? input.serverId : "";
+        if (!UUID.test(serverId)) throw new AdminFlowError(400, "INVALID_SERVER_ID", "Sunucu kimliği geçersiz.");
+
+        const observed = await dependencies.observeServer(serverId);
+        if (!observed) {
+          throw new AdminFlowError(503, "RECONCILE_UNAVAILABLE", "Sağlayıcıdan durum alınamadı.");
+        }
+
+        const outcome = await dependencies.repository.reconcileServer({
+          serverId,
+          // A provider that still returns an address is running the server.
+          observedStatus: observed.reachable ? "online" : "suspended",
+          actorUserId: session.userId,
+          now: now(),
+        });
+        if (outcome.status === "not_found") {
+          throw new AdminFlowError(404, "SERVER_NOT_FOUND", "Sunucu bulunamadı.");
+        }
+        if (outcome.status === "already_aligned") {
+          return { aligned: false, state: outcome.state, message: `Kayıt zaten sağlayıcıyla aynı (${outcome.state}).` };
+        }
+        return {
+          aligned: true,
+          state: outcome.to,
+          message: `Sunucu durumu ${outcome.from} → ${outcome.to} olarak düzeltildi.`,
         };
       });
     },

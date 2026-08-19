@@ -200,3 +200,48 @@ test("a scheduler failure is reported but never stops the worker", async () => {
   assert.equal(await worker.runScheduleOnce(), null);
   assert.equal(seen.length, 1);
 });
+
+test("a failed side operation does not condemn a server that is still running", async () => {
+  const failures = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test" },
+    repository: {
+      async claimJob() {
+        return { jobId: "job-1", serverId: "server-1", kind: "create_backup", attempts: 4 };
+      },
+      async findServer() { return null; },
+      async failJob(input) {
+        failures.push(input);
+        return { retrying: false };
+      },
+    },
+  });
+
+  await worker.runOnce();
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].breaksServer, false, "yedek hatası sunucuyu bozuk saymamalı");
+  assert.match(failures[0].customerMessage, /çalışmaya devam ediyor/);
+});
+
+test("a failed setup still condemns the server, because there is nothing running", async () => {
+  const failures = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test" },
+    repository: {
+      async claimJob() {
+        return { jobId: "job-1", serverId: "server-1", kind: "create_server", attempts: 4 };
+      },
+      async findServer() { return null; },
+      async failJob(input) {
+        failures.push(input);
+        return { retrying: false };
+      },
+    },
+  });
+
+  await worker.runOnce();
+  assert.equal(failures[0].breaksServer, true);
+  assert.match(failures[0].customerMessage, /Kurulum tamamlanamadı/);
+});

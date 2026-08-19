@@ -37,12 +37,13 @@ function dashboardData() {
   };
 }
 
-function build({ role = "operator", activeSession = session, repository = {}, memberships = {} } = {}) {
+function build({ role = "operator", activeSession = session, repository = {}, memberships = {}, observeServer = async () => ({ reachable: true }) } = {}) {
   const retried = [];
   const provisioned = [];
   const commanded = [];
   const planChanges = [];
   const balanceCalls = [];
+  const reconciled = [];
   const membershipCalls = [];
   const service = createAdminService({
     auth: { async authenticateSession() { return activeSession; } },
@@ -62,12 +63,18 @@ function build({ role = "operator", activeSession = session, repository = {}, me
         balanceCalls.push(input);
         return { status: "applied", balanceMinor: 15_000, previousMinor: 5_000 };
       },
+      async reconcileServer(input) {
+        reconciled.push(input);
+        return { status: "aligned", from: "failed", to: input.observedStatus };
+      },
       async provisionServer(input) {
         provisioned.push(input);
         return { status: "queued", serverId: "44444444-4444-4444-8444-444444444444", jobId: JOB_ID };
       },
       ...repository,
     },
+    // `null` means "not configured", which a destructuring default cannot express.
+    observeServer: observeServer ?? undefined,
     memberships: {
       async grantMembership(input) {
         membershipCalls.push({ action: "grant", input });
@@ -81,7 +88,7 @@ function build({ role = "operator", activeSession = session, repository = {}, me
     },
     now: () => NOW,
   });
-  return { service, retried, provisioned, commanded, membershipCalls, planChanges, balanceCalls };
+  return { service, retried, provisioned, commanded, membershipCalls, planChanges, balanceCalls, reconciled };
 }
 
 function provisionInput(overrides = {}) {
@@ -472,4 +479,45 @@ test("support cannot move money, and a replay reports the balance it already pro
   });
   assert.equal(result.applied, false);
   assert.match(result.message, /daha önce uygulanmış/);
+});
+
+test("reconciliation writes what the provider reports, not what the record claims", async () => {
+  const { service, reconciled } = build();
+  const result = await service.reconcileServer("token", { serverId: SERVER_ID });
+
+  assert.equal(result.aligned, true);
+  assert.equal(result.state, "online");
+  assert.match(result.message, /failed → online/);
+  assert.equal(reconciled[0].observedStatus, "online");
+  assert.equal(reconciled[0].actorUserId, USER_ID);
+});
+
+test("a server the provider no longer serves is recorded as stopped, not invented as online", async () => {
+  const { service, reconciled } = build({ observeServer: async () => ({ reachable: false }) });
+  await service.reconcileServer("token", { serverId: SERVER_ID });
+  assert.equal(reconciled[0].observedStatus, "suspended");
+});
+
+test("reconciliation refuses rather than guessing when the provider cannot be reached", async () => {
+  const unreachable = build({ observeServer: async () => null });
+  await assert.rejects(
+    () => unreachable.service.reconcileServer("token", { serverId: SERVER_ID }),
+    (error) => error.status === 503 && error.code === "RECONCILE_UNAVAILABLE",
+  );
+  assert.equal(unreachable.reconciled.length, 0);
+
+  const unconfigured = build({ observeServer: null });
+  await assert.rejects(
+    () => unconfigured.service.reconcileServer("token", { serverId: SERVER_ID }),
+    (error) => error.status === 503,
+  );
+});
+
+test("support cannot correct a server record", async () => {
+  const support = build({ role: "support" });
+  await assert.rejects(
+    () => support.service.reconcileServer("token", { serverId: SERVER_ID }),
+    (error) => error.status === 403 && error.code === "ADMIN_WRITE_REQUIRED",
+  );
+  assert.equal(support.reconciled.length, 0);
 });

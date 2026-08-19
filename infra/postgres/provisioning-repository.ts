@@ -377,6 +377,8 @@ export class PostgresProvisioningRepository {
     attempts: number;
     operatorDetail: string;
     customerMessage: string;
+    /** Only a job that decides whether the server exists may condemn it. */
+    breaksServer: boolean;
     now: Date;
   }) {
     const exhausted = input.attempts >= JOB_MAX_ATTEMPTS;
@@ -413,7 +415,7 @@ export class PostgresProvisioningRepository {
             input.now,
           ],
         );
-        if (exhausted) {
+        if (exhausted && input.breaksServer) {
           await transaction.query(
             "UPDATE servers SET status = 'failed', updated_at = $2 WHERE id = $1::uuid",
             [input.serverId, input.now],

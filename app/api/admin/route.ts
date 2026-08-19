@@ -87,6 +87,10 @@ export async function handleAdminAction(
       );
     }
 
+    if (body.action === "reconcile_server") {
+      return jsonNoStore(await service.reconcileServer(token, { serverId: body.serverId }));
+    }
+
     if (body.action === "adjust_balance") {
       return jsonNoStore(await service.adjustBalance(token, {
         userId: body.userId,
