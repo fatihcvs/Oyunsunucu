@@ -17,6 +17,23 @@ export type JobKind =
   | "apply_settings"
   | "resize_server";
 
+/**
+ * Every job kind, as a value.
+ *
+ * The type alone is erased at runtime, which is how `apply_settings` and
+ * `resize_server` reached production while the database still refused them.
+ * This list is what the schema test compares the SQL CHECK against.
+ */
+export const JOB_KINDS = [
+  "create_server",
+  "start_server",
+  "stop_server",
+  "restart_server",
+  "delete_server",
+  "apply_settings",
+  "resize_server",
+] as const satisfies readonly JobKind[];
+
 export type JobStatus = "pending" | "leased" | "succeeded" | "failed" | "dead";
 
 const ALLOWED_SERVER_TRANSITIONS: Record<ServerStatus, readonly ServerStatus[]> = {
