@@ -12,11 +12,10 @@ import type {
 import { getPlan } from "./catalog.ts";
 import {
   normalizeStoredSettings,
-  settingFields,
+  settingGroups,
   supportsSettings,
   validateSettings,
   type ServerSettings,
-  type SettingField,
 } from "./server-settings.ts";
 import { describeSchedule, nextRunAt, validateSchedule } from "./schedule-contracts.ts";
 
@@ -40,8 +39,11 @@ export type PanelServer = {
   /** The command in flight, if any; while it runs no other command is offered. */
   busyWith: string | null;
   availableCommands: ServerCommand[];
-  /** The editable fields for this game, already narrowed to what the plan allows. */
-  settingFields: readonly SettingField[];
+  /**
+   * The editable fields for this game, grouped into the sections the panel
+   * draws and already narrowed to what the plan allows.
+   */
+  settingGroups: ReturnType<typeof settingGroups>;
   settings: ServerSettings;
   /** False while a job is in flight or the state cannot take a restart. */
   canEditSettings: boolean;
@@ -88,7 +90,7 @@ function toPanelServer(server: OwnedServer): PanelServer {
     connection: server.connection,
     busyWith: server.pendingJobKind,
     availableCommands: available,
-    settingFields: settingFields(server.gameId, memoryMb),
+    settingGroups: settingGroups(server.gameId, memoryMb),
     settings: normalizeStoredSettings(server.gameId, memoryMb, server.settings),
     canEditSettings: !server.pendingJobKind &&
       supportsSettings(server.gameId) &&

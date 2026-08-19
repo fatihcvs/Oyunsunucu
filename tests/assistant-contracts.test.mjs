@@ -5,6 +5,7 @@ import {
   buildPlanProposal,
   buildSettingsProposal,
 } from "../lib/assistant-contracts.ts";
+import { defaultSettings } from "../lib/server-settings.ts";
 
 const SERVER_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -17,15 +18,9 @@ function serverContext(overrides = {}) {
     planId: "mini-2",
     regionId: "eu-west",
     status: "online",
-    settings: {
-      motd: "",
-      maxPlayers: 10,
-      difficulty: "normal",
-      gameMode: "survival",
-      pvp: true,
-      whitelist: false,
-      viewDistance: 10,
-    },
+    // The panel always hands the assistant a complete settings object, so the
+    // fixture starts from the same defaults rather than a hand-picked subset.
+    settings: defaultSettings("minecraft", 2 * 1024),
     availableCommands: ["durdur", "yeniden-baslat"],
     canEditSettings: true,
     busyWith: null,

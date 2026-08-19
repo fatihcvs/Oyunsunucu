@@ -309,10 +309,11 @@ Durum: **ikinci dilim tamamlandı; canlı doğrulaması bekliyor.** Panel artık
 gösteriyor ve başlat/durdur/yeniden başlat komutlarını kuyruğa veriyor.
 Sunucusu olmayan veya girmemiş ziyaretçi demoyu görüyor; ribbon hangi durumda
 olduğunu açıkça söylüyor. Müşteri artık sunucusunun karşılama mesajını, oyuncu sınırını, zorluğunu, oyun
-modunu, PvP ve beyaz liste durumunu panelden değiştirebiliyor; değişiklik
+modunu, PvP ve beyaz liste dahil 28 ayarı panelden değiştirebiliyor; değişiklik
 doğrulanıp veritabanına yazılıyor ve aynı kuyruk üzerinden sağlayıcıya
-uygulanıyor. Konsol, yedek ve kaynak grafikleri canlı panelde
-**gösterilmiyor** — kurulmadıkları için iddia da edilmiyorlar. Yönetici paneli
+uygulanıyor. Konsol, yedek, zamanlama ve kaynak grafikleri artık kendi
+sekmelerinde canlı çalışıyor; dosya yöneticisi ve mod kurulumu ise kurulmadıkları
+için panelde iddia da edilmiyorlar. Yönetici paneli
 doğrulanmış müşteriye, ödeme/sipariş uydurmadan, mevcut worker kuyruğu üzerinden
 elle kapalı-beta sunucusu ayırabiliyor.
 
@@ -345,6 +346,16 @@ elle kapalı-beta sunucusu ayırabiliyor.
       hazır ama panele bağlanmadı.
 - [x] Sunucu ayarları: oyun bazlı ayar sözleşmesi, panelden düzenleme ve
       ayarı sağlayıcıya uygulayan kuyruk işi (`apply_settings`)
+- [x] Ayar kataloğunun genişletilmesi: Minecraft için 7 alandan 28 alana çıktı
+      ve altı bölüme ayrıldı (genel, oyuncular, kurallar, dünya, kaynak paketi,
+      başarım). Katalogda yalnızca **çalışan dünyada gerçekten karşılığı olan**
+      alanlar var; `seed` ve `level-type` gibi yalnızca dünya üretilirken okunan
+      ayarlar bilinçli olarak dışarıda bırakıldı, çünkü kaydedilip hiçbir şey
+      değiştirmeyen bir ayar müşteriye yalan söyler.
+- [x] Müşteri paneli bölümlere ayrıldı: genel bakış, ayarlar, konsol, yedek ve
+      asistan ayrı sekmelerde. Bölümler gizlenir, sökülmez; konsol tamponu ve
+      asistan konuşması sekme değişince kaybolmaz. Kapalı bir ayar bölümü
+      kaydedilmemiş değişikliği kendi başlığında sayar.
 - [x] Paket yükseltme: katalog kurallı yükseltme, aylık fiyat farkının gösterilmesi,
       `resize_server` kuyruk işi ve dünyanın korunması. Küçültme bilinçli olarak
       kapalı: disk küçültmek canlı dünyayı riske atar. Tahsilat yoktur; ödeme

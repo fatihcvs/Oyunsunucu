@@ -5,6 +5,7 @@ import {
   normalizeStoredSettings,
   playerCeiling,
   settingFields,
+  settingGroups,
   settingsToContainerVariables,
   supportsSettings,
   validateSettings,
@@ -36,7 +37,7 @@ test("a small plan cannot be told to carry a large plan's player count", () => {
 test("an unknown key is refused instead of silently dropped", () => {
   const result = validateSettings("minecraft", MINI_2, {
     ...defaultSettings("minecraft", MINI_2),
-    enableCommandBlock: true,
+    opEveryone: true,
   });
   assert.equal(result.ok, false);
   assert.equal(result.code, "UNKNOWN_SETTING");
@@ -46,7 +47,11 @@ test("each field kind refuses the values it cannot mean", () => {
   const base = defaultSettings("minecraft", MINI_2);
   const cases = [
     { ...base, difficulty: "impossible" },
-    { ...base, gameMode: "spectator" },
+    { ...base, gameMode: "hayatta-kalma" },
+    { ...base, opPermissionLevel: "9" },
+    { ...base, maxWorldSize: "12" },
+    { ...base, resourcePack: "paket.zip" },
+    { ...base, resourcePack: "javascript:alert(1)" },
     { ...base, pvp: "yes" },
     { ...base, viewDistance: 32 },
     { ...base, viewDistance: 8.5 },
@@ -98,13 +103,39 @@ test("settings become the container variables the certified runtime reads", () =
 
   assert.deepEqual(variables, {
     MOTD: "Riftory beta",
+    ENABLE_STATUS: "TRUE",
+    HIDE_ONLINE_PLAYERS: "FALSE",
+
     MAX_PLAYERS: "8",
-    DIFFICULTY: "hard",
-    MODE: "survival",
-    PVP: "FALSE",
     ENABLE_WHITELIST: "TRUE",
     ENFORCE_WHITELIST: "TRUE",
+    ONLINE_MODE: "TRUE",
+    OP_PERMISSION_LEVEL: "4",
+    PLAYER_IDLE_TIMEOUT: "0",
+
+    DIFFICULTY: "hard",
+    MODE: "survival",
+    FORCE_GAMEMODE: "FALSE",
+    HARDCORE: "FALSE",
+    PVP: "FALSE",
+    ALLOW_FLIGHT: "FALSE",
+    ENABLE_COMMAND_BLOCK: "FALSE",
+    ANNOUNCE_PLAYER_ACHIEVEMENTS: "TRUE",
+
+    SPAWN_PROTECTION: "16",
+    ALLOW_NETHER: "TRUE",
+    SPAWN_MONSTERS: "TRUE",
+    SPAWN_ANIMALS: "TRUE",
+    SPAWN_NPCS: "TRUE",
+    GENERATE_STRUCTURES: "TRUE",
+    MAX_WORLD_SIZE: "29999984",
+
+    RESOURCE_PACK: "",
+    RESOURCE_PACK_ENFORCE: "FALSE",
+
     VIEW_DISTANCE: "12",
+    SIMULATION_DISTANCE: "10",
+    ENTITY_BROADCAST_RANGE_PERCENTAGE: "100",
   });
   // The variables that make the server boot at all are not ours to emit here.
   assert.equal("EULA" in variables, false);
@@ -134,4 +165,50 @@ test("an empty welcome line falls back to the server's own name", () => {
 
   const written = settingsToContainerVariables("minecraft", { motd: "Riftory beta" }, "talatim");
   assert.equal(written.MOTD, "Riftory beta");
+});
+
+test("a resource pack is only accepted as an address a client can fetch", () => {
+  const base = defaultSettings("minecraft", MINI_2);
+
+  const accepted = validateSettings("minecraft", MINI_2, {
+    ...base,
+    resourcePack: "  https://cdn.example.com/pack.zip  ",
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.settings.resourcePack, "https://cdn.example.com/pack.zip");
+
+  // An empty address is how a customer removes the pack, so it stays legal.
+  assert.equal(validateSettings("minecraft", MINI_2, { ...base, resourcePack: "" }).ok, true);
+});
+
+test("a pack cannot be enforced when there is no pack to download", () => {
+  const enforcedWithout = settingsToContainerVariables("minecraft", {
+    resourcePack: "",
+    resourcePackEnforce: true,
+  });
+  assert.equal(enforcedWithout.RESOURCE_PACK_ENFORCE, "FALSE");
+
+  const enforcedWith = settingsToContainerVariables("minecraft", {
+    resourcePack: "https://cdn.example.com/pack.zip",
+    resourcePackEnforce: true,
+  });
+  assert.equal(enforcedWith.RESOURCE_PACK_ENFORCE, "TRUE");
+});
+
+test("every field lands in exactly one of the sections the panel draws", () => {
+  const groups = settingGroups("minecraft", MINI_2);
+  assert.ok(groups.length > 1);
+
+  const grouped = groups.flatMap((group) => group.fields.map((field) => field.key));
+  const catalogue = settingFields("minecraft", MINI_2).map((field) => field.key);
+  assert.deepEqual([...grouped].sort(), [...catalogue].sort());
+  assert.equal(new Set(grouped).size, grouped.length);
+
+  // A section with nothing in it would render as an empty box.
+  assert.ok(groups.every((group) => group.fields.length > 0));
+
+  // Terraria uses two of the same sections rather than a catalogue of its own.
+  const terraria = settingGroups("terraria", MINI_2);
+  assert.deepEqual(terraria.map((group) => group.id), ["oyuncular", "kurallar"]);
+  assert.deepEqual(settingGroups("vintagestory", MINI_2), []);
 });

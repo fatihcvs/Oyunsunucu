@@ -8,7 +8,7 @@ import { ConsoleCard } from "./console-card";
 import { BackupCard } from "./backup-card";
 import { MetricsCard } from "./metrics-card";
 import { ScheduleCard, type Schedule } from "./schedule-card";
-import { ServerSettingsCard, type SettingField, type SettingValue } from "./server-settings-card";
+import { ServerSettingsCard, type SettingGroup, type SettingValue } from "./server-settings-card";
 import { getGame, getPlan, getRegion, type GameId } from "@/lib/catalog";
 
 export type PanelServer = {
@@ -22,7 +22,7 @@ export type PanelServer = {
   connection: { host: string; port: number } | null;
   busyWith: string | null;
   availableCommands: string[];
-  settingFields: SettingField[];
+  settingGroups: SettingGroup[];
   settings: Record<string, SettingValue>;
   canEditSettings: boolean;
   schedule: Schedule | null;
@@ -60,7 +60,28 @@ const BUSY_LABEL: Record<string, string> = {
   stop_server: "Durduruluyor",
   restart_server: "Yeniden başlatılıyor",
   delete_server: "Siliniyor",
+  apply_settings: "Ayarlar uygulanıyor",
+  resize_server: "Paket yükseltiliyor",
+  create_backup: "Yedek alınıyor",
 };
+
+/**
+ * The sections of the panel, in the order a customer needs them.
+ *
+ * One job per section: the overview answers "is it up and how do I join", and
+ * everything that changes the server lives behind its own tab. Every section
+ * stays mounted and is hidden rather than unmounted, so the console buffer and
+ * the assistant conversation survive a trip to another tab.
+ */
+const PANEL_TABS = [
+  { id: "genel", label: "Genel bakış", icon: "server" },
+  { id: "ayarlar", label: "Ayarlar", icon: "settings" },
+  { id: "konsol", label: "Konsol", icon: "terminal" },
+  { id: "yedek", label: "Yedek ve zamanlama", icon: "shield" },
+  { id: "asistan", label: "Asistan", icon: "spark" },
+] as const satisfies ReadonlyArray<{ id: string; label: string; icon: IconName }>;
+
+type PanelTabId = (typeof PANEL_TABS)[number]["id"];
 
 const REFRESH_MS = 5_000;
 
@@ -85,6 +106,7 @@ export function LivePanel({
   onRefresh: () => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState(servers[0]?.serverId ?? "");
+  const [tab, setTab] = useState<PanelTabId>("genel");
   const [toast, setToast] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -154,6 +176,18 @@ export function LivePanel({
     } catch {
       setToast("Adres kopyalanamadı; elle seçebilirsin.");
     }
+  };
+
+  /** Left and right walk the tab strip, as a tab list is expected to. */
+  const moveTab = (event: React.KeyboardEvent<HTMLElement>) => {
+    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    const index = PANEL_TABS.findIndex((entry) => entry.id === tab);
+    const next = PANEL_TABS[(index + step + PANEL_TABS.length) % PANEL_TABS.length];
+    setTab(next.id);
+    const button = event.currentTarget.querySelector<HTMLButtonElement>(`#panelTab-${next.id}`);
+    button?.focus();
   };
 
   return (
@@ -229,7 +263,31 @@ export function LivePanel({
           </div>
         </header>
 
-        <div className="overviewGrid panelView">
+        <nav aria-label="Panel bölümleri" className="panelTabs" onKeyDown={moveTab} role="tablist">
+          {PANEL_TABS.map((entry) => (
+            <button
+              aria-controls={`panelSection-${entry.id}`}
+              aria-selected={entry.id === tab}
+              className={entry.id === tab ? "active" : ""}
+              id={`panelTab-${entry.id}`}
+              key={entry.id}
+              onClick={() => setTab(entry.id)}
+              role="tab"
+              tabIndex={entry.id === tab ? 0 : -1}
+              type="button"
+            >
+              <Icon name={entry.icon} size={16} /> {entry.label}
+            </button>
+          ))}
+        </nav>
+
+        <div
+          aria-labelledby="panelTab-genel"
+          className="overviewGrid panelView"
+          hidden={tab !== "genel"}
+          id="panelSection-genel"
+          role="tabpanel"
+        >
           <section className="connectionCard">
             <header>
               <span><Icon name="globe" size={18} /> Bağlantı bilgileri</span>
@@ -267,18 +325,60 @@ export function LivePanel({
             </dl>
           </section>
 
-          <ServerHistory serverId={active.serverId} updatedAt={active.updatedAt} />
-
           <MetricsCard online={active.status === "online"} serverId={active.serverId} />
 
+          <ServerHistory serverId={active.serverId} updatedAt={active.updatedAt} />
+
+          <section className="panelNotice">
+            <Icon name="terminal" size={18} />
+            <p>
+              <b>Dosya yöneticisi ve mod kurulumu bu sunucuda henüz yok.</b>
+              Kurulmadıkları için panelde gösterilmiyorlar. Kaynak kullanımı burada;
+              ayarlar, konsol, yedekler ve asistan yukarıdaki sekmelerde.
+            </p>
+          </section>
+        </div>
+
+        <div
+          aria-labelledby="panelTab-ayarlar"
+          className="overviewGrid panelView singleColumn"
+          hidden={tab !== "ayarlar"}
+          id="panelSection-ayarlar"
+          role="tabpanel"
+        >
+          <ServerSettingsCard
+            busyReason={active.busyWith
+              ? "Sunucuda bekleyen bir işlem var; bitince ayarlar yeniden açılır."
+              : "Ayarlar yalnızca çalışan veya durdurulmuş sunucuda değiştirilebilir."}
+            editable={active.canEditSettings}
+            groups={active.settingGroups ?? []}
+            onSaved={(message) => { setToast(message); void onRefresh(); }}
+            serverId={active.serverId}
+            values={active.settings ?? {}}
+          />
+        </div>
+
+        <div
+          aria-labelledby="panelTab-konsol"
+          className="overviewGrid panelView singleColumn"
+          hidden={tab !== "konsol"}
+          id="panelSection-konsol"
+          role="tabpanel"
+        >
           <ConsoleCard
             gameId={active.gameId}
             online={active.status === "online"}
             serverId={active.serverId}
           />
+        </div>
 
-          <AssistantCard onApplied={(message) => { setToast(message); void onRefresh(); }} />
-
+        <div
+          aria-labelledby="panelTab-yedek"
+          className="overviewGrid panelView singleColumn"
+          hidden={tab !== "yedek"}
+          id="panelSection-yedek"
+          role="tabpanel"
+        >
           <BackupCard
             onQueued={(message) => { setToast(message); void onRefresh(); }}
             serverId={active.serverId}
@@ -289,26 +389,16 @@ export function LivePanel({
             schedule={active.schedule ?? null}
             serverId={active.serverId}
           />
+        </div>
 
-          <ServerSettingsCard
-            busyReason={active.busyWith
-              ? "Sunucuda bekleyen bir işlem var; bitince ayarlar yeniden açılır."
-              : "Ayarlar yalnızca çalışan veya durdurulmuş sunucuda değiştirilebilir."}
-            editable={active.canEditSettings}
-            fields={active.settingFields ?? []}
-            onSaved={(message) => { setToast(message); void onRefresh(); }}
-            serverId={active.serverId}
-            values={active.settings ?? {}}
-          />
-
-          <section className="panelNotice">
-            <Icon name="terminal" size={18} />
-            <p>
-              <b>Dosya yöneticisi ve mod kurulumu bu sunucuda henüz yok.</b>
-              Kurulmadıkları için panelde gösterilmiyorlar. Kaynak kullanımı,
-              konsol, yedekler, zamanlama ve ayarlar yukarıdaki bölümlerde.
-            </p>
-          </section>
+        <div
+          aria-labelledby="panelTab-asistan"
+          className="overviewGrid panelView singleColumn"
+          hidden={tab !== "asistan"}
+          id="panelSection-asistan"
+          role="tabpanel"
+        >
+          <AssistantCard onApplied={(message) => { setToast(message); void onRefresh(); }} />
         </div>
       </section>
 

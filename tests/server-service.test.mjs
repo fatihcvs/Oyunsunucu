@@ -179,7 +179,9 @@ test("the panel receives the editable fields and the current values together", a
   assert.equal(server.canEditSettings, true);
   assert.equal(server.settings.difficulty, "hard");
   assert.equal(server.settings.gameMode, "survival");
-  assert.ok(server.settingFields.some((field) => field.key === "maxPlayers"));
+  const fields = server.settingGroups.flatMap((group) => group.fields);
+  assert.ok(fields.some((field) => field.key === "maxPlayers"));
+  assert.ok(server.settingGroups.every((group) => group.label && group.fields.length > 0));
 });
 
 test("settings cannot be edited while a job is in flight", async () => {

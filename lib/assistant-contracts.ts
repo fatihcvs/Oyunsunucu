@@ -1,7 +1,7 @@
 import { evaluatePlanChange, resolveRelativePlan } from "./plan-change.ts";
 import { SERVER_COMMANDS, canCommandServer, isServerCommand, type ServerCommand } from "./provisioning-contracts.ts";
 import { getPlan } from "./catalog.ts";
-import { validateSettings, type ServerSettings } from "./server-settings.ts";
+import { settingFields, validateSettings, type ServerSettings, type SettingField } from "./server-settings.ts";
 
 /**
  * What the assistant is allowed to propose.
@@ -70,15 +70,6 @@ function findServer(servers: readonly AssistantServerContext[], reference: unkno
     server.name.toLocaleLowerCase("tr") === wanted) ?? null;
 }
 
-const SETTING_LABELS: Record<string, string> = {
-  motd: "karşılama mesajı",
-  maxPlayers: "maksimum oyuncu",
-  difficulty: "zorluk",
-  gameMode: "oyun modu",
-  pvp: "PvP",
-  whitelist: "beyaz liste",
-  viewDistance: "görüş mesafesi",
-};
 
 /**
  * Turns a settings proposal into something the panel can execute, or refuses it.
@@ -122,8 +113,14 @@ export function buildSettingsProposal(
     return { ok: false, code: "NOTHING_TO_CHANGE", message: "Bu ayarlar zaten böyle." };
   }
 
+  // Wording comes from the catalogue itself rather than a second list beside
+  // it, so a field added to the panel is never summarised by its raw key.
+  const fields = settingFields(server.gameId, memoryMb);
   const described = changedKeys
-    .map((key) => `${SETTING_LABELS[key] ?? key}: ${formatValue(validation.settings[key])}`)
+    .map((key) => {
+      const field = fields.find((candidate) => candidate.key === key);
+      return `${field?.label ?? key}: ${formatValue(field, validation.settings[key])}`;
+    })
     .join(", ");
 
   return {
@@ -140,9 +137,15 @@ export function buildSettingsProposal(
   };
 }
 
-function formatValue(value: unknown) {
+function formatValue(field: SettingField | undefined, value: unknown) {
   if (typeof value === "boolean") return value ? "açık" : "kapalı";
   if (typeof value === "string" && !value) return "boş";
+  // A choice is stored as the value the runtime wants, which is rarely the
+  // wording the customer chose it by.
+  if (field?.kind === "choice") {
+    const choice = field.choices.find((candidate) => candidate.value === value);
+    if (choice) return choice.label;
+  }
   return String(value);
 }
 

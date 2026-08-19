@@ -661,6 +661,14 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .mobilePanelTabs { display: none; }
 .panelView { margin-top: 25px; animation: stepIn .25s ease both; }
 .overviewGrid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(280px,.65fr); gap: 13px; }
+.overviewGrid.singleColumn { grid-template-columns: minmax(0,1fr); }
+.panelView[hidden] { display: none; }
+.panelTabs { margin-top: 22px; display: flex; gap: 7px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--line); }
+.panelTabs::-webkit-scrollbar { display: none; }
+.panelTabs button { min-width: max-content; min-height: 44px; padding: 0 15px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #6b737d; font: 650 15px var(--font-geist-sans); cursor: pointer; }
+.panelTabs button:hover { color: #a5acb4; }
+.panelTabs button.active { border-bottom-color: var(--orange); color: var(--orange2); }
+.panelTabs button:focus-visible { outline: 2px solid var(--orange); outline-offset: -4px; border-radius: 8px; }
 .connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.backupCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
 .backupCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .backupCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
@@ -903,10 +911,24 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .settingsCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .settingsCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
 .settingsCard > header > em { color: #6c7480; font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }
-.settingsCard form { padding: 18px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px 14px; }
-.settingsCard form > label { display: grid; align-content: start; gap: 7px; }
-.settingsCard form > label > span { color: #99a0a8; font-size: 12.5px; font-weight: 620; }
-.settingsCard form > label > small { color: #5b636d; font-size: 11.5px; line-height: 1.5; }
+.settingsCard form { padding: 15px 18px 18px; display: grid; gap: 11px; }
+.settingsGroup { border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.012); overflow: hidden; }
+.settingsGroup > summary { min-height: 60px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; list-style: none; cursor: pointer; }
+.settingsGroup > summary::-webkit-details-marker { display: none; }
+.settingsGroup > summary > span { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.settingsGroup > summary b { color: #c6cbd1; font-size: 15.5px; font-weight: 650; }
+.settingsGroup > summary small { color: #5b636d; font-size: 13px; }
+.settingsGroup > summary > em { padding: 4px 9px; border-radius: 6px; background: rgba(255,174,67,.09); color: #dca657; font-size: 12.5px; font-style: normal; font-weight: 650; }
+.settingsGroup > summary > i { flex: none; width: 8px; height: 8px; border-right: 2px solid #5f6670; border-bottom: 2px solid #5f6670; transform: rotate(45deg) translate(-2px,-2px); transition: transform .18s ease; }
+.settingsGroup[open] > summary > i { transform: rotate(-135deg); }
+.settingsGroup[open] > summary { border-bottom: 1px solid var(--line); }
+.settingsGroup > summary:hover b { color: #e2e6ea; }
+.settingsGroup > summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -3px; }
+.settingsGrid { padding: 17px 16px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 17px 14px; }
+.settingsGrid > label { display: grid; align-content: start; gap: 7px; }
+.settingsGrid > label > span { color: #99a0a8; font-size: 13.5px; font-weight: 620; }
+.settingsGrid > label > small { color: #5b636d; font-size: 12.5px; line-height: 1.5; }
+.settingsGrid > label.isChanged > span { color: var(--orange2); }
 .settingsCard input[type="text"],.settingsCard input[type="number"],.settingsCard select { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 9px; outline: 0; background: rgba(3,5,7,.5); color: #c8ccd0; font: 14px var(--font-geist-sans); }
 .settingsCard select option { background: #11151a; }
 .settingsCard input:focus,.settingsCard select:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,107,26,.07); }
@@ -924,7 +946,7 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .settingsError,.settingsBlocked { grid-column: 1/-1; margin: 0; font-size: 12.5px; }
 .settingsError { color: #d07777; }
 .settingsBlocked { display: inline-flex; align-items: center; gap: 8px; color: #6a727c; }
-@media (max-width: 900px) { .settingsCard form { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .settingsGrid { grid-template-columns: 1fr; } }
 
 .panelNotice { grid-column: 1/-1; padding: 14px 16px; display: flex; align-items: flex-start; gap: 11px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.012); color: #5f6670; }
 .panelNotice p { margin: 0; display: grid; gap: 4px; font-size: 15px; line-height: 1.6; }
