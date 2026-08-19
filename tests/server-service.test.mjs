@@ -20,6 +20,10 @@ function ownedServer(overrides = {}) {
     name: "Test Sunucusu",
     connection: { host: "metro.proxy.rlwy.net", port: 28520 },
     pendingJobKind: null,
+    schedule: {
+      kind: "restart", hour: 4, minute: 0, offsetMinutes: 180,
+      enabled: true, nextRunAt: "2026-08-21T01:00:00.000Z", lastRunAt: null,
+    },
     createdAt: "2026-08-15T09:00:00.000Z",
     updatedAt: "2026-08-15T09:05:00.000Z",
     ...overrides,
@@ -29,6 +33,7 @@ function ownedServer(overrides = {}) {
 function buildService({ servers = [ownedServer()], session = { userId: OWNER, email: "a@b.c" }, repository = {} } = {}) {
   const enqueued = [];
   const saved = [];
+  const schedules = [];
   const service = createServerService({
     auth: { async authenticateSession(token) { return token === TOKEN ? session : null; } },
     servers: {
@@ -46,10 +51,19 @@ function buildService({ servers = [ownedServer()], session = { userId: OWNER, em
         saved.push(input);
         return { status: "queued", jobId: "job-settings-1" };
       },
+      async saveSchedule(input) {
+        // Mirrors the real query: ownership is decided in SQL, so a fake that
+        // always saves would hide the check this test is about.
+        const owned = servers.some((candidate) =>
+          candidate.serverId === input.serverId && candidate.ownerUserId === input.ownerUserId);
+        if (!owned) return { status: "not_found" };
+        schedules.push(input);
+        return { status: "saved" };
+      },
       ...repository,
     },
   });
-  return { service, enqueued, saved };
+  return { service, enqueued, saved, schedules };
 }
 
 test("lists the caller's servers with the commands their state allows", async () => {
@@ -236,4 +250,66 @@ test("a signed-out caller is refused before any database work", async () => {
     (error) => error.status === 401,
   );
   assert.equal(saved.length, 0);
+});
+
+test("a saved schedule stores the next run computed from the customer's clock", async () => {
+  const { service, schedules } = buildService();
+  const result = await service.saveSchedule({
+    rawToken: TOKEN,
+    serverId: SERVER_ID,
+    schedule: { kind: "restart", hour: 4, minute: 30, enabled: true },
+  });
+
+  assert.equal(result.saved, true);
+  assert.match(result.message, /Her gün 04:30/);
+  assert.equal(schedules.length, 1);
+  assert.equal(schedules[0].hour, 4);
+  assert.equal(schedules[0].minute, 30);
+  assert.equal(schedules[0].offsetMinutes, 180);
+  assert.equal(schedules[0].ownerUserId, OWNER);
+  // 04:30 Istanbul is 01:30 UTC, and the stored instant must be in the future.
+  assert.equal(schedules[0].nextRunAt.getUTCMinutes(), 30);
+  assert.ok(schedules[0].nextRunAt.getTime() > Date.now());
+});
+
+test("an impossible time never reaches the database", async () => {
+  const { service, schedules } = buildService();
+  for (const schedule of [
+    { hour: 25, minute: 0, enabled: true },
+    { hour: 4, minute: 7, enabled: true },
+    { hour: 4, minute: 0 },
+  ]) {
+    await assert.rejects(
+      () => service.saveSchedule({ rawToken: TOKEN, serverId: SERVER_ID, schedule }),
+      (error) => error.status === 400,
+    );
+  }
+  assert.equal(schedules.length, 0);
+});
+
+test("a stranger cannot set a schedule, and sees no server to read one from", async () => {
+  const { service, schedules } = buildService({
+    servers: [ownedServer({ ownerUserId: "33333333-3333-4333-8333-333333333333" })],
+  });
+
+  const { servers } = await service.listServers(TOKEN);
+  assert.equal(servers.length, 0);
+
+  await assert.rejects(
+    () => service.saveSchedule({
+      rawToken: TOKEN,
+      serverId: SERVER_ID,
+      schedule: { kind: "restart", hour: 4, minute: 0, enabled: true },
+    }),
+    (error) => error.status === 404,
+  );
+  assert.equal(schedules.length, 0);
+});
+
+test("the schedule travels with the server row, in words the panel can show", async () => {
+  const { service } = buildService();
+  const { servers } = await service.listServers(TOKEN);
+
+  assert.equal(servers[0].schedule.hour, 4);
+  assert.match(servers[0].scheduleDescription, /Her gün 04:00/);
 });

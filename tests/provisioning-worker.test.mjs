@@ -163,3 +163,40 @@ test("keeps the customer message free of provider internals", async () => {
   assert.doesNotMatch(repository.failed[0].customerMessage, /ECONNREFUSED|token|10\.0\.0\.5/);
   assert.match(repository.failed[0].operatorDetail, /ECONNREFUSED/);
 });
+
+test("the scheduler tick asks the repository for due work and reports what fired", async () => {
+  const calls = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test" },
+    repository: {
+      async claimDueSchedule(input) {
+        calls.push(input);
+        return { serverId: "server-1", jobId: "job-1" };
+      },
+    },
+    now: () => new Date("2026-08-20T01:00:00.000Z"),
+  });
+
+  const fired = await worker.runScheduleOnce();
+  assert.deepEqual(fired, { serverId: "server-1", jobId: "job-1" });
+  assert.equal(calls.length, 1);
+  assert.equal(typeof calls[0].nextRunAt, "function");
+  // The worker hands its own clock down rather than letting SQL decide "now".
+  assert.equal(calls[0].now.toISOString(), "2026-08-20T01:00:00.000Z");
+});
+
+test("a scheduler failure is reported but never stops the worker", async () => {
+  const seen = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test" },
+    repository: {
+      async claimDueSchedule() { throw new Error("veritabanı yok"); },
+    },
+    onOperationalError: (error) => seen.push(error),
+  });
+
+  assert.equal(await worker.runScheduleOnce(), null);
+  assert.equal(seen.length, 1);
+});

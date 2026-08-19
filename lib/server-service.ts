@@ -18,6 +18,7 @@ import {
   type ServerSettings,
   type SettingField,
 } from "./server-settings.ts";
+import { describeSchedule, nextRunAt, validateSchedule } from "./schedule-contracts.ts";
 
 export type ServerServiceDependencies = {
   auth: AuthService;
@@ -44,6 +45,8 @@ export type PanelServer = {
   settings: ServerSettings;
   /** False while a job is in flight or the state cannot take a restart. */
   canEditSettings: boolean;
+  schedule: OwnedServer["schedule"];
+  scheduleDescription: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -90,6 +93,8 @@ function toPanelServer(server: OwnedServer): PanelServer {
     canEditSettings: !server.pendingJobKind &&
       supportsSettings(server.gameId) &&
       (SETTINGS_ALLOWED_STATUSES as readonly string[]).includes(server.status),
+    schedule: server.schedule,
+    scheduleDescription: server.schedule ? describeSchedule(server.schedule) : null,
     createdAt: server.createdAt,
     updatedAt: server.updatedAt,
   };
@@ -193,6 +198,47 @@ export function createServerService(dependencies: ServerServiceDependencies) {
       } catch (error) {
         report(error);
         throw new ServerFlowError(503, "COMMAND_UNAVAILABLE", "İstek şu anda sıraya alınamadı.");
+      }
+    },
+
+    /**
+     * Sets or clears the daily restart.
+     *
+     * The next run is computed here rather than in SQL so the arithmetic stays
+     * in one tested place, and stored so the worker can find due work with an
+     * index instead of recomputing a wall clock per server on every poll.
+     */
+    async saveSchedule(input: { rawToken: string; serverId: string; schedule: unknown }) {
+      const session = await requireSession(input.rawToken);
+
+      const validation = validateSchedule(input.schedule);
+      if (!validation.ok) throw new ServerFlowError(400, validation.code, validation.message);
+
+      const now = dependencies.now?.() ?? new Date();
+      try {
+        const outcome = await dependencies.servers.saveSchedule({
+          serverId: input.serverId,
+          ownerUserId: session.userId,
+          kind: validation.schedule.kind,
+          hour: validation.schedule.hour,
+          minute: validation.schedule.minute,
+          offsetMinutes: validation.schedule.offsetMinutes,
+          enabled: validation.schedule.enabled,
+          nextRunAt: nextRunAt(validation.schedule, now),
+          now,
+        });
+        if (outcome.status !== "saved") {
+          throw new ServerFlowError(404, "SERVER_NOT_FOUND", "Sunucu bulunamadı.");
+        }
+        return {
+          saved: true,
+          schedule: validation.schedule,
+          message: describeSchedule(validation.schedule),
+        };
+      } catch (error) {
+        if (error instanceof ServerFlowError) throw error;
+        report(error);
+        throw new ServerFlowError(503, "SCHEDULE_UNAVAILABLE", "Zamanlama şu anda kaydedilemedi.");
       }
     },
 

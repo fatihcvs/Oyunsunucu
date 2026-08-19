@@ -23,8 +23,20 @@ export type ServerRecord = {
 };
 
 /** A server as the panel shows it: the record plus what the customer connects to. */
+export type StoredSchedule = {
+  kind: "restart";
+  hour: number;
+  minute: number;
+  offsetMinutes: number;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+};
+
 export type OwnedServer = ServerRecord & {
   connection: { host: string; port: number } | null;
+  /** The daily restart, if the customer set one. */
+  schedule: StoredSchedule | null;
   /** The command still in flight, if any; the panel disables its buttons on it. */
   pendingJobKind: JobKind | null;
   createdAt: string;
@@ -457,8 +469,11 @@ export class PostgresProvisioningRepository {
               s.connection_host, s.connection_port, s.created_at, s.updated_at,
               (SELECT j.kind FROM provisioning_jobs j
                 WHERE j.server_id = s.id AND j.status IN ('pending', 'leased')
-                ORDER BY j.created_at LIMIT 1) AS pending_kind
+                ORDER BY j.created_at LIMIT 1) AS pending_kind,
+              c.local_hour, c.local_minute, c.offset_minutes,
+              c.enabled AS schedule_enabled, c.next_run_at, c.last_run_at
          FROM servers s
+         LEFT JOIN server_schedules c ON c.server_id = s.id AND c.kind = 'restart'
         WHERE s.owner_user_id = $1::uuid AND s.status <> 'deleted'
         ORDER BY s.created_at DESC
         LIMIT 100`,
@@ -472,6 +487,17 @@ export class PostgresProvisioningRepository {
           ? { host: row.connection_host, port: Number(row.connection_port) }
           : null,
       pendingJobKind: typeof row.pending_kind === "string" ? (row.pending_kind as JobKind) : null,
+      schedule: row.next_run_at
+        ? {
+          kind: "restart" as const,
+          hour: Number(row.local_hour),
+          minute: Number(row.local_minute),
+          offsetMinutes: Number(row.offset_minutes),
+          enabled: row.schedule_enabled === true,
+          nextRunAt: new Date(row.next_run_at as string).toISOString(),
+          lastRunAt: row.last_run_at ? new Date(row.last_run_at as string).toISOString() : null,
+        }
+        : null,
       createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     }));
@@ -571,6 +597,132 @@ export class PostgresProvisioningRepository {
       );
 
       return { status: "queued", jobId };
+    });
+  }
+
+  /** Writes the schedule the customer chose; the caller computed `nextRunAt`. */
+  async saveSchedule(input: {
+    serverId: string;
+    ownerUserId: string;
+    kind: string;
+    hour: number;
+    minute: number;
+    offsetMinutes: number;
+    enabled: boolean;
+    nextRunAt: Date;
+    now: Date;
+  }): Promise<{ status: "saved" } | { status: "not_found" }> {
+    return this.database.transaction(async (transaction) => {
+      const owned = await transaction.query(
+        `SELECT 1 FROM servers
+          WHERE id = $1::uuid AND owner_user_id = $2::uuid AND status <> 'deleted'`,
+        [input.serverId, input.ownerUserId],
+      );
+      // A stranger's server answers exactly like a missing one.
+      if (owned.rows.length !== 1) return { status: "not_found" };
+
+      await transaction.query(
+        `INSERT INTO server_schedules
+           (server_id, kind, local_hour, local_minute, offset_minutes, enabled, next_run_at, updated_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (server_id, kind) DO UPDATE SET
+           local_hour = EXCLUDED.local_hour,
+           local_minute = EXCLUDED.local_minute,
+           offset_minutes = EXCLUDED.offset_minutes,
+           enabled = EXCLUDED.enabled,
+           next_run_at = EXCLUDED.next_run_at,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          input.serverId,
+          input.kind,
+          input.hour,
+          input.minute,
+          input.offsetMinutes,
+          input.enabled,
+          input.nextRunAt,
+          input.now,
+        ],
+      );
+      return { status: "saved" };
+    });
+  }
+
+  /**
+   * Fires one due schedule, if there is one.
+   *
+   * Takes a single schedule per call under `FOR UPDATE SKIP LOCKED`, exactly
+   * like the job queue: several workers can run this loop without any of them
+   * firing the same restart. `next_run_at` moves forward inside the same
+   * transaction that queues the job, so a crash between the two is impossible.
+   *
+   * A server that already has work outstanding is skipped rather than queued
+   * behind it — a scheduled restart is a convenience, not something worth
+   * stacking up while a setup or a settings change is mid-flight.
+   */
+  async claimDueSchedule(input: {
+    now: Date;
+    nextRunAt: (schedule: { hour: number; minute: number; offsetMinutes: number }, after: Date) => Date;
+  }): Promise<{ serverId: string; jobId: string } | null> {
+    return this.database.transaction(async (transaction) => {
+      const due = await transaction.query<Record<string, unknown>>(
+        `SELECT s.server_id::text AS server_id, s.local_hour, s.local_minute, s.offset_minutes,
+                v.status AS server_status
+           FROM server_schedules s
+           JOIN servers v ON v.id = s.server_id
+          WHERE s.enabled AND s.next_run_at <= $1 AND s.kind = 'restart'
+          ORDER BY s.next_run_at
+          LIMIT 1
+          FOR UPDATE OF s SKIP LOCKED`,
+        [input.now],
+      );
+      const row = due.rows[0];
+      if (!row) return null;
+
+      const serverId = requiredText(row.server_id, "server_schedules.server_id");
+      const advanced = input.nextRunAt(
+        {
+          hour: Number(row.local_hour),
+          minute: Number(row.local_minute),
+          offsetMinutes: Number(row.offset_minutes),
+        },
+        input.now,
+      );
+
+      // The clock moves on whether or not the restart is queued, so a server
+      // that was busy or offline this time is simply considered tomorrow.
+      await transaction.query(
+        `UPDATE server_schedules SET next_run_at = $2, last_run_at = $3, updated_at = $3
+          WHERE server_id = $1::uuid AND kind = 'restart'`,
+        [serverId, advanced, input.now],
+      );
+
+      if (row.server_status !== "online") return null;
+
+      const pending = await transaction.query(
+        `SELECT 1 FROM provisioning_jobs
+          WHERE server_id = $1::uuid AND status IN ('pending', 'leased')
+          LIMIT 1`,
+        [serverId],
+      );
+      if (pending.rows.length > 0) return null;
+
+      const key = `${jobIdempotencyKey("restart_server", serverId)}:${input.now.getTime()}`;
+      const job = await transaction.query<Record<string, unknown>>(
+        `INSERT INTO provisioning_jobs
+           (server_id, kind, idempotency_key, max_attempts, run_after, created_at, updated_at)
+         VALUES ($1::uuid, 'restart_server', $2, $3, $4, $4, $4)
+         RETURNING id::text AS id`,
+        [serverId, key, JOB_MAX_ATTEMPTS, input.now],
+      );
+      const jobId = requiredText(job.rows[0]?.id, "provisioning_jobs.id");
+
+      await transaction.query(
+        `INSERT INTO server_events (server_id, job_id, kind, customer_message, occurred_at)
+         VALUES ($1::uuid, $2::uuid, 'scheduled_restart_queued', $3, $4)`,
+        [serverId, jobId, "Zamanlanmış yeniden başlatma sıraya alındı.", input.now],
+      );
+
+      return { serverId, jobId };
     });
   }
 

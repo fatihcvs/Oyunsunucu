@@ -329,6 +329,10 @@ elle kapalı-beta sunucusu ayırabiliyor.
       özel ağı üzerindedir ve RCON portu hiçbir proxy ile dışarı açılmaz.
       `stop`, `restart` ve `reload` panelden reddedilir: durum makinesinin
       arkasından sunucuyu durdurmak paneli yanlış gösterir.
+- [x] Zamanlanmış yeniden başlatma: günlük saat seçimi, sunucu satırıyla birlikte
+      gelen zamanlama, worker'ın ayrı bir tick'te tetiklediği `restart_server` işi.
+      Zaman hesabı saf bir fonksiyonda ve testli; `next_run_at` işi kuyruğa alan
+      işlemin içinde ilerletildiği için bir zamanlama iki kez ateşlenemez.
 - [ ] Yedek listeleme, oluşturma ve onaylı geri yükleme
 - [x] Sunucu ayarları: oyun bazlı ayar sözleşmesi, panelden düzenleme ve
       ayarı sağlayıcıya uygulayan kuyruk işi (`apply_settings`)

@@ -1,5 +1,6 @@
 import { getPlan } from "./catalog.ts";
 import { normalizeStoredSettings } from "./server-settings.ts";
+import { nextRunAt } from "./schedule-contracts.ts";
 import { heapMegabytes } from "../infra/gameservers/runtime-catalog.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import { ProviderError, type GameServerProvider } from "../infra/gameservers/provider.ts";
@@ -199,6 +200,23 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
   } satisfies Record<string, (job: ClaimedJob) => Promise<unknown>>;
 
   return {
+    /**
+     * Fires one due scheduled restart, if any is due.
+     *
+     * Separate from the job tick so a busy queue cannot starve the scheduler,
+     * and so a scheduler fault cannot stop jobs from draining.
+     */
+    async runScheduleOnce() {
+      try {
+        return await dependencies.repository.claimDueSchedule({ now: now(), nextRunAt });
+      } catch (error) {
+        // A scheduler failure must not take the worker down with it: jobs still
+        // need draining, and the next tick will try again.
+        try { dependencies.onOperationalError?.(error); } catch { /* ignore */ }
+        return null;
+      }
+    },
+
     /** Claims and applies one job. Returns false when the queue is empty. */
     async runOnce() {
       const job = await dependencies.repository.claimJob(dependencies.owner, now());

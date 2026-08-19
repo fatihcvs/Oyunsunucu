@@ -20,8 +20,12 @@ async function migrationSql() {
  */
 test("every job kind in the contract is accepted by the schema", async () => {
   const sql = await migrationSql();
-  const checks = [...sql.matchAll(/CHECK \(kind IN \(([^)]*)\)\)/g)];
-  assert.ok(checks.length > 0, "kind CHECK kısıtı bulunamadı");
+  // Scoped to the jobs table: other tables have their own `kind` columns, and
+  // matching any of them would compare the contract against the wrong list.
+  const checks = [
+    ...sql.matchAll(/provisioning_jobs[\s\S]{0,400}?CHECK \(kind IN \(([^)]*)\)\)/g),
+  ];
+  assert.ok(checks.length > 0, "provisioning_jobs için kind CHECK kısıtı bulunamadı");
 
   // The last definition wins: later migrations replace the constraint.
   const allowed = new Set(

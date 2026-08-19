@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon, type IconName } from "../_components/icon";
 import { AssistantCard } from "./assistant-card";
 import { ConsoleCard } from "./console-card";
+import { ScheduleCard, type Schedule } from "./schedule-card";
 import { ServerSettingsCard, type SettingField, type SettingValue } from "./server-settings-card";
 import { getGame, getPlan, getRegion, type GameId } from "@/lib/catalog";
 
@@ -22,6 +23,7 @@ export type PanelServer = {
   settingFields: SettingField[];
   settings: Record<string, SettingValue>;
   canEditSettings: boolean;
+  schedule: Schedule | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -272,6 +274,12 @@ export function LivePanel({
           />
 
           <AssistantCard onApplied={(message) => { setToast(message); void onRefresh(); }} />
+
+          <ScheduleCard
+            onSaved={(message) => { setToast(message); void onRefresh(); }}
+            schedule={active.schedule ?? null}
+            serverId={active.serverId}
+          />
 
           <ServerSettingsCard
             busyReason={active.busyWith

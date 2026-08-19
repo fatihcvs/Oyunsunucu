@@ -98,6 +98,16 @@ export async function handleServerCommand(
 
     // Saving settings is a mutation of the same server, so it shares this
     // route's origin check and ownership path rather than getting its own.
+    if (body.action === "save_schedule") {
+      return jsonNoStore(
+        await service.saveSchedule({
+          rawToken,
+          serverId: body.serverId,
+          schedule: body.schedule,
+        }),
+      );
+    }
+
     if (body.action === "save_settings") {
       return jsonNoStore(
         await service.saveSettings({

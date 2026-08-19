@@ -76,10 +76,15 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
 console.log(`[riftory] worker başladı · sağlayıcı ${provider.name}`);
 try {
   while (running) {
+    // The scheduler runs first: a due restart should join the queue on this
+    // tick rather than wait for the queue to drain.
+    const fired = await worker.runScheduleOnce();
+    if (fired) console.log(`[riftory] zamanlanmış yeniden başlatma sıraya alındı · sunucu ${fired.serverId}`);
+
     const worked = await worker.runOnce();
     if (once) break;
     // An empty queue must not become a busy loop against the database.
-    if (!worked) await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
+    if (!worked && !fired) await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
