@@ -8,7 +8,8 @@ ve yönetim deneyimi çıkarmaktır.
 
 İlk beta kapsamı:
 
-- Minecraft Java: Paper, Purpur, Vanilla ve Fabric
+- Minecraft Java: Paper, Purpur, Vanilla ve Fabric (satışta);
+  Spigot, Forge, NeoForge ve Quilt beyan edildi, sertifikasyon bekliyor
 - Terraria: Vanilla; tModLoader kontrollü beta
 - Vintage Story: Vanilla (TCP olduğu için ilk fazda barındırılabiliyor)
 - Avrupa Batı / Amsterdam dağıtım bölgesi

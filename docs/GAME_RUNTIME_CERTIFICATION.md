@@ -286,3 +286,42 @@ kullanılmamalıdır:
   yapılan bir tur gerekir.
 - Minecraft Vanilla ve Fabric ölçümleri. Aynı imajı paylaşsalar da farklı sunucu
   yazılımıdır; katalogda satılmadan önce ayrı ölçülmelidir.
+
+## Beyan edilmiş, henüz ölçülmemiş çalışma ortamları
+
+2026-08-19'da katalog dört Minecraft sunucu yazılımıyla genişletildi. Hepsi
+`verification: "declared"` durumundadır: imaj ve sürüm sabitlenmiştir, minimum
+bellek beyan edilmiştir, ancak **hiçbiri plan sınırı altında açılıp
+ölçülmemiştir**. Bu yüzden katalogda `soon: true` taşırlar ve satılamazlar.
+
+| Yazılım | `TYPE` | Beyan edilen minimum | Ölçülmesi gereken |
+|---|---|---:|---|
+| Spigot | `SPIGOT` | 2 GB | Kendi derlemesini yaptığı için ilk açılış süresi |
+| Forge | `FORGE` | 4 GB | Sürüm uyumu ve mod yükü altında bellek |
+| NeoForge | `NEOFORGE` | 4 GB | Yeni Minecraft sürümünde platform hazır mı |
+| Quilt | `QUILT` | 2 GB | Fabric'e yakın davranıp davranmadığı |
+
+Kural testle korunmaktadır: `tests/game-runtime-catalog.test.mjs` içindeki
+"nothing is sellable until a certification run has measured it" testi, satışa
+açık her birleşimin `certified` olmasını zorunlu tutar. Bir yazılımın `soon`
+bayrağını ölçmeden kaldırmak testi kırar.
+
+### Sertifikasyon nasıl yapılır
+
+Docker Desktop açıkken, her birleşim için ayrı ayrı:
+
+```sh
+MINECRAFT_EULA_ACCEPTED=true node scripts/certify-game-runtime.mjs --game minecraft --software spigot --plan mini-2
+MINECRAFT_EULA_ACCEPTED=true node scripts/certify-game-runtime.mjs --game minecraft --software quilt --plan mini-2
+MINECRAFT_EULA_ACCEPTED=true node scripts/certify-game-runtime.mjs --game minecraft --software forge --plan starter-4
+MINECRAFT_EULA_ACCEPTED=true node scripts/certify-game-runtime.mjs --game minecraft --software neoforge --plan starter-4
+```
+
+Forge ve NeoForge, beyan edilen minimumları 4 GB olduğu için `starter-4` planıyla
+ölçülür; daha küçük bir planla çalıştırmak beyanla çelişir.
+
+Prova geçen bir birleşim için iki dosya birlikte güncellenir:
+`infra/gameservers/runtime-catalog.ts` içinde `verification: "certified"` ve
+ölçülen değerlerle `notes`, `lib/catalog.ts` içinde ise `soon` bayrağının
+kaldırılması. Prova başarısız olursa kapsayıcı incelenmek üzere bırakılır ve
+katalog olduğu gibi kalır.

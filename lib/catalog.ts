@@ -69,7 +69,7 @@ export const GAME_CATALOG: CatalogGame[] = [
     letter: "M",
     color: "#73d865",
     tag: "Hazır",
-    desc: "Paper, Vanilla ve Fabric.",
+    desc: "Paper, Vanilla, Fabric ve mod platformları.",
     live: true,
     protocol: "TCP",
     software: [
@@ -77,6 +77,10 @@ export const GAME_CATALOG: CatalogGame[] = [
       { id: "purpur", name: "Purpur", description: "Paper tabanlı, ayar esnekliği yüksek sürüm." },
       { id: "vanilla", name: "Vanilla", description: "Oyunun sade, resmi sunucu deneyimi." },
       { id: "fabric", name: "Fabric", description: "Hafif mod paketleri için esnek kurulum." },
+      { id: "spigot", name: "Spigot", description: "Klasik eklenti ekosisteminin referans sunucusu.", soon: true },
+      { id: "forge", name: "Forge", description: "Büyük mod paketleri için köklü platform.", soon: true },
+      { id: "neoforge", name: "NeoForge", description: "Forge'un güncel çatalı; yeni mod paketleri burada.", soon: true },
+      { id: "quilt", name: "Quilt", description: "Fabric uyumlu, topluluk yönetimli mod yükleyici.", soon: true },
     ],
   },
   {

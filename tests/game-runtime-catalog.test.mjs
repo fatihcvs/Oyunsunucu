@@ -136,3 +136,46 @@ test("heap leaves the measured off-heap reserve on every plan", () => {
     assert.ok(limit - heap >= 768, `${plan.id} için off-heap payı ölçülen ihtiyacın altında`);
   }
 });
+
+test("nothing is sellable until a certification run has measured it", () => {
+  for (const game of ACTIVE_GAMES) {
+    for (const software of sellableSoftware(game)) {
+      const runtime = findGameRuntime(game.id, software.id);
+      assert.ok(runtime, `${game.id}/${software.id} için çalışma ortamı tanımı yok`);
+      assert.equal(
+        runtime.verification,
+        "certified",
+        `${game.id}/${software.id} satışa açık ama doğrulaması "${runtime.verification}"`,
+      );
+      assert.ok(runtime.image, `${game.id}/${software.id} satışa açık ama imajı sabitlenmemiş`);
+    }
+  }
+});
+
+test("a declared runtime is announced but never selectable", () => {
+  const declared = GAME_RUNTIMES.filter((runtime) => runtime.verification === "declared");
+  assert.ok(declared.length > 0, "bu testin anlamlı olması için en az bir beyan edilmiş ortam olmalı");
+
+  for (const runtime of declared) {
+    const game = ACTIVE_GAMES.find((candidate) => candidate.id === runtime.gameId);
+    if (!game) continue;
+    const listed = game.software.find((software) => software.id === runtime.softwareId);
+    assert.ok(listed, `${runtime.softwareId} katalogda görünmüyor`);
+    assert.equal(listed.soon, true, `${runtime.softwareId} ölçülmeden satışa açılmış`);
+  }
+});
+
+test("a declared combination cannot pass draft validation", () => {
+  const declared = GAME_RUNTIMES.find((runtime) => runtime.verification === "declared");
+  assert.equal(
+    isServerDraft({
+      gameId: declared.gameId,
+      softwareId: declared.softwareId,
+      planId: "starter-4",
+      regionId: "eu-west",
+      serverName: "Deneme Sunucusu",
+      backups: false,
+    }),
+    false,
+  );
+});
