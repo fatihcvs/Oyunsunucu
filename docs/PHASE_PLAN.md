@@ -436,6 +436,13 @@ operatör işi. Nitrado ölçeği bu üç varsayımın hepsini kaldırmayı gere
 
 ### Faz 10 — Riftory Asistanı: doğal dil ile sunucu yönetimi
 
+Durum: **İlk dilim tamamlandı.** Kapalı niyet kümesi, katalog doğrulaması, öneri
+→ onay → mevcut uçlar zinciri ve panel arayüzü yazıldı; ayrıntılar
+[`docs/ASSISTANT.md`](ASSISTANT.md) dosyasındadır. Kalan: konuşma geçmişi
+(şu an her mesaj bağımsız), sorun giderme yanıtları için olay geçmişinin
+bağlama alınması, oran sınırlama ve maliyet tavanı, asistan işlemlerinin
+`audit_logs` içine ayrıca işaretlenmesi.
+
 Amaç: "Sunucuyu 2x'e al", "zorluğu zor yap", "arkadaşlarım giremiyor" gibi
 cümleleri, panelin zaten yapabildiği güvenli işlemlere çevirmek.
 
@@ -448,22 +455,21 @@ reddedeceği bir öneri üretmektir.
 
 İşler:
 
-- Niyet sözleşmesi: modelin döndürebileceği kapalı bir işlem kümesi
-  (`change_setting`, `resize_plan`, `restart`, `explain_status`, `create_backup`)
-  ve her birinin şeması
-- Araç (tool) tanımları: her işlem mevcut servis fonksiyonuna birebir bağlanır;
+- [x] Niyet sözleşmesi: modelin döndürebileceği kapalı işlem kümesi
+  (`change_settings`, `change_plan`, `run_command`, `answer`) ve her birinin şeması
+- [x] Araç (tool) tanımları: her işlem mevcut servis fonksiyonuna birebir bağlanır;
   model serbest metin SQL, kabuk komutu veya sağlayıcı çağrısı üretemez
-- Onay adımı: her öneri "ne değişecek, ne kadar sürecek, aylık maliyeti nasıl
-  etkileyecek, sunucu yeniden başlayacak mı" bilgisiyle gösterilir
-- Bağlam: yalnızca kullanıcının kendi sunucuları, ayarları ve olay geçmişi;
-  başka müşterinin verisi bağlama girmez
-- "2x" gibi göreli ifadelerin katalogdan çözülmesi: mevcut paket → bir üst paket,
-  fiyat farkı ve veri koruma garantisi
+- [x] Onay adımı: her öneri "ne değişecek, aylık maliyeti nasıl etkileyecek,
+  sunucu yeniden başlayacak mı" bilgisiyle gösterilir
+- [x] Bağlam: yalnızca kullanıcının kendi sunucuları ve ayarları; başka
+  müşterinin verisi bağlama girmez (olay geçmişi henüz bağlama alınmadı)
+- [x] "2x" gibi göreli ifadelerin katalogdan çözülmesi: mevcut paket → yeterli
+  en küçük paket, fiyat farkı ve veri koruma garantisi
 - Sorun giderme yanıtları: bağlanamama, whitelist, sürüm uyuşmazlığı ve dolu
   sunucu durumları için olay geçmişine dayalı açıklama
 - Oran sınırlama, maliyet tavanı ve denetim kaydı: her asistan önerisi ve her
   onaylanan işlem `audit_logs` içine yazılır
-- Kırmızı çizgiler: silme, iade, ödeme ve üyelik işlemleri asistana kapalıdır
+- [x] Kırmızı çizgiler: silme, iade, ödeme ve üyelik işlemleri asistana kapalıdır
 
 Çıkış kapısı:
 

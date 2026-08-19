@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "../_components/icon";
+import { AssistantCard } from "./assistant-card";
 import { ServerSettingsCard, type SettingField, type SettingValue } from "./server-settings-card";
 import { getGame, getPlan, getRegion, type GameId } from "@/lib/catalog";
 
@@ -262,6 +263,8 @@ export function LivePanel({
           </section>
 
           <ServerHistory serverId={active.serverId} updatedAt={active.updatedAt} />
+
+          <AssistantCard onApplied={(message) => { setToast(message); void onRefresh(); }} />
 
           <ServerSettingsCard
             busyReason={active.busyWith

@@ -38,6 +38,7 @@ durumundadır.
   başarısız işi kontrollü yeniden deneme
 - `/api/admin/session` — yalnızca üyeliği olan hesaba oturum açan admin parola girişi
 - `/api/admin/password` — yöneticinin kendi parolasını değiştirmesi
+- `/api/assistant` — doğal dil isteğini onaya sunulan bir öneriye çeviren asistan
 
 Yapılandırıcı seçimi tarayıcıda yerel taslak olarak saklar ve panel demosuna
 aktarır. PostgreSQL kimlik repository'si, magic-link servisi, e-posta teslim
@@ -52,6 +53,8 @@ Tam faz planı, teknik kararlar, doğrulama kapıları ve beta kapsamı
 [`docs/PHASE_PLAN.md`](docs/PHASE_PLAN.md) dosyasındadır.
 Organik keşif hedefleri, içerik kuralları ve yayın kontrol listesi
 [`docs/SEO_CONTENT_FOUNDATION.md`](docs/SEO_CONTENT_FOUNDATION.md) dosyasındadır.
+Asistanın mimari sınırları, kapalı işlem kümesi ve istem enjeksiyonuna karşı
+duruşu [`docs/ASSISTANT.md`](docs/ASSISTANT.md) dosyasındadır.
 Katalogdaki oyun/yazılım birleşimlerinin gerçek kapsayıcıda ölçülmüş davranışı
 ve hangi iddiaların henüz doğrulanmadığı
 [`docs/GAME_RUNTIME_CERTIFICATION.md`](docs/GAME_RUNTIME_CERTIFICATION.md)

@@ -661,7 +661,34 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .mobilePanelTabs { display: none; }
 .panelView { margin-top: 25px; animation: stepIn .25s ease both; }
 .overviewGrid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(280px,.65fr); gap: 13px; }
-.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.settingsCard { border: 1px solid var(--line); border-radius: 13px; background: linear-gradient(150deg,rgba(19,23,28,.94),rgba(13,16,20,.96)); }
+.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.assistantCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg,rgba(255,107,26,.045),rgba(9,12,16,.55) 60%); overflow: hidden; }
+.assistantCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.assistantCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
+.assistantCard > header > em { color: var(--orange2); font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }
+.assistantThread { padding: 16px 18px; display: grid; gap: 10px; max-height: 320px; overflow-y: auto; }
+.assistantEmpty p { margin: 0 0 12px; color: #6f7680; font-size: 13px; line-height: 1.6; }
+.assistantEmpty > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.assistantEmpty button { padding: 8px 12px; border: 1px solid var(--line2); border-radius: 999px; background: rgba(3,5,7,.4); color: #99a0a8; font-size: 12px; cursor: pointer; }
+.assistantEmpty button:hover { border-color: rgba(255,107,26,.3); color: var(--orange2); }
+.assistantTurn { margin: 0; padding: 11px 13px; max-width: 78%; border-radius: 11px; background: rgba(3,5,7,.45); color: #b9bfc6; font-size: 13.5px; line-height: 1.6; }
+.assistantTurn.user { margin-left: auto; background: rgba(255,107,26,.08); color: #d6cdc6; }
+.assistantTurn.pending { color: #6a727c; font-style: italic; }
+.assistantProposal { margin: 0 18px 16px; padding: 15px 16px; border: 1px solid rgba(255,107,26,.2); border-radius: 12px; background: rgba(255,107,26,.045); }
+.assistantProposal > small { color: var(--orange2); font-size: 11px; font-weight: 720; letter-spacing: .08em; }
+.assistantProposal > b { display: block; margin: 7px 0 10px; color: #d2d7dc; font-size: 14.5px; }
+.assistantProposal ul { margin: 0 0 13px; padding-left: 17px; display: grid; gap: 5px; color: #7c838d; font-size: 12.5px; line-height: 1.55; }
+.assistantProposal > div { display: flex; flex-wrap: wrap; gap: 9px; }
+.assistantProposal button { min-height: 42px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,107,26,.26); border-radius: 9px; background: rgba(255,107,26,.1); color: var(--orange2); font-size: 13px; font-weight: 650; cursor: pointer; }
+.assistantProposal .assistantDecline { border-color: var(--line2); background: transparent; color: #838b95; }
+.assistantProposal button:disabled { opacity: .5; cursor: progress; }
+.assistantCard form { padding: 0 18px 18px; display: flex; gap: 10px; }
+.assistantCard form input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 10px; outline: 0; background: rgba(3,5,7,.5); color: #c8ccd0; font: 14px var(--font-geist-sans); }
+.assistantCard form input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,107,26,.07); }
+.assistantCard form button { min-height: 46px; padding: 0 18px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,107,26,.24); border-radius: 10px; background: rgba(255,107,26,.08); color: var(--orange2); font-size: 13px; font-weight: 650; cursor: pointer; }
+.assistantCard form button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 650px) { .assistantTurn { max-width: 100%; } .assistantCard form { flex-direction: column; } }
+
+.settingsCard { border: 1px solid var(--line); border-radius: 13px; background: linear-gradient(150deg,rgba(19,23,28,.94),rgba(13,16,20,.96)); }
 .connectionCard { grid-column: 1/-1; overflow: hidden; }
 .connectionCard > header { min-height: 45px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .connectionCard > header > span { display: flex; align-items: center; gap: 7px; color: #949aa2; font-size: 15px; font-weight: 700; }
