@@ -9,18 +9,33 @@ import {
 import {
   AUTH_RATE_LIMIT_POLICIES,
   SESSION_TTL_SECONDS,
+  createDeviceDraftImportCommand,
   createOpaqueToken,
+  createPkcePair,
   createSecretRateLimitBucketKey,
   sha256Hex,
+  type DeviceDraftImportCommand,
   type RateLimitDecision,
   type RateLimitPolicy,
 } from "./auth-security.ts";
+import { CATALOG_VERSION } from "./catalog.ts";
 import type {
   ActiveSessionResult,
   CreateMagicLinkChallengeInput,
+  CreateOAuthStateInput,
   MagicLinkExchangeInput,
   MagicLinkExchangeResult,
+  OAuthExchangeInput,
+  OAuthStateResult,
+  RotateSessionInput,
+  RotateSessionResult,
 } from "../infra/postgres/auth-repository.ts";
+import {
+  buildDiscordAuthorizeUrl,
+  exchangeDiscordCode,
+  fetchDiscordIdentity,
+  type DiscordConfig,
+} from "../infra/oauth/discord.ts";
 
 export const MAGIC_LINK_TTL_MS = 10 * 60_000;
 export const MAGIC_LINK_ACCEPTED_MESSAGE =
@@ -61,6 +76,35 @@ export interface MagicLinkRepository {
   findActiveSession(tokenHash: string, now: Date): Promise<ActiveSessionResult | null>;
 }
 
+export interface SessionRepository {
+  rotateSession(input: RotateSessionInput): Promise<RotateSessionResult | null>;
+  revokeSession(sessionId: string, actorUserId: string, now: Date): Promise<boolean>;
+  revokeAllUserSessions(actorUserId: string, now: Date): Promise<number>;
+  revokeSessionFamilyOnReuse(
+    tokenHash: string,
+    now: Date,
+  ): Promise<{ familyId: string; userId: string; revokedSessions: number } | null>;
+}
+
+export interface OAuthRepository {
+  createOAuthState(input: CreateOAuthStateInput): Promise<string>;
+  consumeOAuthState(input: {
+    provider: "discord";
+    stateHash: string;
+    now: Date;
+  }): Promise<OAuthStateResult | null>;
+  exchangeOAuthAccount(input: OAuthExchangeInput): Promise<MagicLinkExchangeResult | null>;
+}
+
+export interface DraftRepository {
+  importDeviceDraft(
+    command: DeviceDraftImportCommand,
+    catalogVersion: string,
+  ): Promise<{ serverDraftId: string; replay: boolean }>;
+}
+
+export type AuthRepository = MagicLinkRepository & SessionRepository & OAuthRepository & DraftRepository;
+
 export interface MagicLinkMailer {
   sendMagicLink(input: {
     to: string;
@@ -71,14 +115,19 @@ export interface MagicLinkMailer {
 }
 
 export type AuthServiceDependencies = {
-  repository: MagicLinkRepository;
-  mailer: MagicLinkMailer;
+  repository: AuthRepository;
+  /** Null when no mail provider is configured; magic-link calls then fail loudly. */
+  mailer: MagicLinkMailer | null;
+  /** Null when Discord credentials are absent; Discord calls then fail loudly. */
+  discord?: DiscordConfig | null;
   appOrigin: string;
   rateLimitSecret: string;
   now?: () => Date;
   crypto?: Crypto;
   onOperationalError?: (error: unknown) => void;
 };
+
+export const OAUTH_STATE_TTL_MS = 10 * 60_000;
 
 export type RequestMagicLinkInput = {
   mode: "signin" | "register";
@@ -91,9 +140,41 @@ export type RequestMagicLinkInput = {
 
 export type ConsumeMagicLinkInput = {
   rawToken: string;
+  clientDiscriminator?: string;
   ipAddress?: string | null;
   userAgent?: string | null;
 };
+
+export type SessionCommandInput = {
+  rawToken: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
+
+export type ImportDeviceDraftInput = {
+  rawToken: string;
+  importKey: string;
+  draft: unknown;
+};
+
+export type StartDiscordSignInInput = {
+  returnTo?: string | null;
+  clientDiscriminator: string;
+  requestedIp?: string | null;
+};
+
+export type CompleteDiscordSignInInput = {
+  state: string;
+  code: string;
+  clientDiscriminator: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
+
+/** One public answer for every Discord failure, so probes learn nothing. */
+function discordRejected() {
+  return new AuthFlowError(400, "DISCORD_SIGN_IN_REJECTED", "Discord girişi tamamlanamadı.");
+}
 
 function safeAppOrigin(value: string) {
   const url = new URL(value);
@@ -151,31 +232,72 @@ export function createAuthService(dependencies: AuthServiceDependencies) {
   const now = dependencies.now ?? (() => new Date());
   const cryptoSource = dependencies.crypto ?? globalThis.crypto;
 
+  async function authenticateSession(rawToken: string) {
+    if (!OPAQUE_TOKEN.test(rawToken)) return null;
+
+    const tokenHash = await sha256Hex(rawToken, cryptoSource);
+    const session = await dependencies.repository.findActiveSession(tokenHash, now());
+    if (session) return session;
+
+    // No live session matched. If the value is a token we already replaced, it
+    // was captured after rotation, so the whole family is treated as burned.
+    try {
+      await dependencies.repository.revokeSessionFamilyOnReuse(tokenHash, now());
+    } catch (error) {
+      reportOperationalError(dependencies, error);
+    }
+    return null;
+  }
+
+  /** Peppered, persistent bucket; the raw identity never reaches the database. */
+  async function takeRateLimit(scope: string, discriminator: string, policy: RateLimitPolicy, at: Date) {
+    const bucketHash = await createSecretRateLimitBucketKey(
+      dependencies.rateLimitSecret,
+      scope,
+      discriminator,
+      cryptoSource,
+    );
+
+    let decision: RateLimitDecision;
+    try {
+      decision = await dependencies.repository.takeRateLimit({ scope, bucketHash, policy, now: at });
+    } catch (error) {
+      // An unreachable database is an outage, not a client mistake: answering
+      // 503 keeps the failure honest and retryable instead of a bare 500.
+      reportOperationalError(dependencies, error);
+      throw new AuthFlowError(503, "AUTH_UNAVAILABLE", "Giriş hizmeti şu anda kullanılamıyor.");
+    }
+
+    if (decision.allowed) return;
+
+    throw new AuthFlowError(
+      429,
+      "RATE_LIMITED",
+      "Çok fazla deneme yapıldı. Bir süre sonra yeniden deneyin.",
+      Math.max(1, Math.ceil(decision.retryAfterMs / 1000)),
+    );
+  }
+
+  function requireDiscord() {
+    if (!dependencies.discord) {
+      throw new AuthFlowError(503, "AUTH_NOT_CONFIGURED", "Discord girişi henüz etkin değil.");
+    }
+    return dependencies.discord;
+  }
+
   return {
     async requestMagicLink(input: RequestMagicLinkInput) {
+      if (!dependencies.mailer) {
+        throw new AuthFlowError(503, "AUTH_NOT_CONFIGURED", "Canlı e-posta girişi henüz etkin değil.");
+      }
       const request = normalizedRequest(input);
       const requestedAt = now();
-      const bucketHash = await createSecretRateLimitBucketKey(
-        dependencies.rateLimitSecret,
+      await takeRateLimit(
         "magic-link",
         `${request.email}|${input.clientDiscriminator}`,
-        cryptoSource,
+        AUTH_RATE_LIMIT_POLICIES.magicLink,
+        requestedAt,
       );
-      const rateLimit = await dependencies.repository.takeRateLimit({
-        scope: "magic-link",
-        bucketHash,
-        policy: AUTH_RATE_LIMIT_POLICIES.magicLink,
-        now: requestedAt,
-      });
-      if (!rateLimit.allowed) {
-        const retryAfterSeconds = Math.max(1, Math.ceil(rateLimit.retryAfterMs / 1000));
-        throw new AuthFlowError(
-          429,
-          "RATE_LIMITED",
-          "Çok fazla deneme yapıldı. Bir süre sonra yeniden deneyin.",
-          retryAfterSeconds,
-        );
-      }
 
       const { rawToken, tokenHash } = await createOpaqueToken(cryptoSource);
       const expiresAt = new Date(requestedAt.getTime() + MAGIC_LINK_TTL_MS);
@@ -228,6 +350,13 @@ export function createAuthService(dependencies: AuthServiceDependencies) {
         throw new AuthFlowError(400, "INVALID_OR_EXPIRED_LINK", "Bağlantı geçersiz veya süresi dolmuş.");
       }
       const consumedAt = now();
+      // Caps link guessing per client before a hash is ever compared.
+      await takeRateLimit(
+        "magic-link-callback",
+        input.clientDiscriminator ?? "unknown",
+        AUTH_RATE_LIMIT_POLICIES.callback,
+        consumedAt,
+      );
       const challengeTokenHash = await sha256Hex(input.rawToken, cryptoSource);
       const sessionToken = await createOpaqueToken(cryptoSource);
       const exchange = await dependencies.repository.exchangeMagicLink({
@@ -250,10 +379,166 @@ export function createAuthService(dependencies: AuthServiceDependencies) {
       };
     },
 
-    async authenticateSession(rawToken: string) {
-      if (!OPAQUE_TOKEN.test(rawToken)) return null;
-      const tokenHash = await sha256Hex(rawToken, cryptoSource);
-      return dependencies.repository.findActiveSession(tokenHash, now());
+    /**
+     * Opens a Discord sign-in: stores a single-use state with its PKCE verifier
+     * and returns the authorize URL. The verifier never leaves the server.
+     */
+    async startDiscordSignIn(input: StartDiscordSignInInput) {
+      const discord = requireDiscord();
+      const startedAt = now();
+      await takeRateLimit(
+        "discord-start",
+        input.clientDiscriminator,
+        AUTH_RATE_LIMIT_POLICIES.discordStart,
+        startedAt,
+      );
+
+      const state = await createOpaqueToken(cryptoSource);
+      const pkce = await createPkcePair(cryptoSource);
+      await dependencies.repository.createOAuthState({
+        provider: "discord",
+        stateHash: state.tokenHash,
+        codeVerifier: pkce.verifier,
+        returnTo: isSafeReturnPath(input.returnTo) ? input.returnTo : DEFAULT_AUTH_RETURN_TO,
+        expiresAt: new Date(startedAt.getTime() + OAUTH_STATE_TTL_MS),
+        requestedIp: input.requestedIp ?? null,
+      });
+
+      return {
+        authorizeUrl: buildDiscordAuthorizeUrl(discord, {
+          state: state.rawToken,
+          codeChallenge: pkce.challenge,
+        }),
+      };
+    },
+
+    /**
+     * Completes the callback. Every failure mode answers with the same public
+     * error so a probe cannot tell a bad state from a bad code or an
+     * unverified provider address.
+     */
+    async completeDiscordSignIn(input: CompleteDiscordSignInInput) {
+      const discord = requireDiscord();
+      const completedAt = now();
+      await takeRateLimit(
+        "discord-callback",
+        input.clientDiscriminator,
+        AUTH_RATE_LIMIT_POLICIES.callback,
+        completedAt,
+      );
+
+      if (!OPAQUE_TOKEN.test(input.state) || !input.code) throw discordRejected();
+
+      const stateHash = await sha256Hex(input.state, cryptoSource);
+      const stored = await dependencies.repository.consumeOAuthState({
+        provider: "discord",
+        stateHash,
+        now: completedAt,
+      });
+      if (!stored) throw discordRejected();
+
+      let identity: Awaited<ReturnType<typeof fetchDiscordIdentity>>;
+      try {
+        const accessToken = await exchangeDiscordCode(discord, {
+          code: input.code,
+          codeVerifier: stored.codeVerifier,
+        });
+        identity = await fetchDiscordIdentity(discord, accessToken);
+      } catch (error) {
+        reportOperationalError(dependencies, error);
+        throw discordRejected();
+      }
+      if (!identity) throw discordRejected();
+
+      const sessionToken = await createOpaqueToken(cryptoSource);
+      const exchange = await dependencies.repository.exchangeOAuthAccount({
+        provider: "discord",
+        providerAccountId: identity.providerAccountId,
+        email: identity.email,
+        displayName: identity.displayName,
+        sessionTokenHash: sessionToken.tokenHash,
+        sessionExpiresAt: new Date(completedAt.getTime() + SESSION_TTL_SECONDS * 1000),
+        now: completedAt,
+        ipAddress: input.ipAddress ?? null,
+        userAgent: input.userAgent?.trim().slice(0, 512) || null,
+      });
+      if (!exchange) throw discordRejected();
+
+      return {
+        sessionToken: sessionToken.rawToken,
+        userId: exchange.userId,
+        returnTo: isSafeReturnPath(stored.returnTo) ? stored.returnTo : DEFAULT_AUTH_RETURN_TO,
+      };
+    },
+
+    authenticateSession,
+
+    /** Issues a successor token for the same session family and invalidates the presented one. */
+    async rotateSession(input: SessionCommandInput) {
+      const session = await authenticateSession(input.rawToken);
+      if (!session) return null;
+
+      const rotatedAt = now();
+      const nextToken = await createOpaqueToken(cryptoSource);
+      const rotated = await dependencies.repository.rotateSession({
+        sessionId: session.sessionId,
+        actorUserId: session.userId,
+        sessionTokenHash: nextToken.tokenHash,
+        sessionExpiresAt: new Date(rotatedAt.getTime() + SESSION_TTL_SECONDS * 1000),
+        now: rotatedAt,
+        ipAddress: input.ipAddress ?? null,
+        userAgent: input.userAgent?.trim().slice(0, 512) || null,
+      });
+      if (!rotated) return null;
+
+      return { sessionToken: nextToken.rawToken, expiresAt: rotated.expiresAt };
+    },
+
+    async signOut(input: SessionCommandInput) {
+      const session = await authenticateSession(input.rawToken);
+      if (!session) return { signedOut: false, revokedSessions: 0 };
+
+      const revoked = await dependencies.repository.revokeSession(session.sessionId, session.userId, now());
+      return { signedOut: revoked, revokedSessions: revoked ? 1 : 0 };
+    },
+
+    /**
+     * Moves one device draft into the signed-in account.
+     *
+     * The import key makes this idempotent: a repeated call with the same draft
+     * returns the original row, and the same key with a different draft is a
+     * conflict rather than a silent overwrite.
+     */
+    async importDeviceDraft(input: ImportDeviceDraftInput) {
+      const session = await authenticateSession(input.rawToken);
+      if (!session) {
+        throw new AuthFlowError(401, "SESSION_REQUIRED", "Bu işlem için giriş yapılmalıdır.");
+      }
+
+      const command = await createDeviceDraftImportCommand({
+        actorUserId: session.userId,
+        importKey: input.importKey,
+        draft: input.draft,
+      });
+      if (!command) {
+        throw new AuthFlowError(400, "INVALID_DRAFT", "Sunucu taslağı veya aktarım anahtarı geçersiz.");
+      }
+
+      const result = await dependencies.repository.importDeviceDraft(command, CATALOG_VERSION);
+      return {
+        code: result.replay ? ("DRAFT_ALREADY_IMPORTED" as const) : ("DRAFT_IMPORTED" as const),
+        serverDraftId: result.serverDraftId,
+      };
+    },
+
+    async signOutEverywhere(input: SessionCommandInput) {
+      const session = await authenticateSession(input.rawToken);
+      if (!session) return { signedOut: false, revokedSessions: 0 };
+
+      const revokedSessions = await dependencies.repository.revokeAllUserSessions(session.userId, now());
+      return { signedOut: true, revokedSessions };
     },
   };
 }
+
+export type AuthService = ReturnType<typeof createAuthService>;

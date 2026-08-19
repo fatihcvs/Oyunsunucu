@@ -48,10 +48,16 @@ export const AUTH_RATE_LIMIT_POLICIES = {
   magicLink: { maxAttempts: 5, windowMs: 15 * 60_000, blockMs: 30 * 60_000 },
   discordStart: { maxAttempts: 20, windowMs: 15 * 60_000, blockMs: 15 * 60_000 },
   callback: { maxAttempts: 10, windowMs: 10 * 60_000, blockMs: 30 * 60_000 },
+  adminPassword: { maxAttempts: 5, windowMs: 15 * 60_000, blockMs: 30 * 60_000 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPAQUE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const BASE64_URL = /^[A-Za-z0-9_-]+$/;
+const ADMIN_PASSWORD_ALGORITHM = "pbkdf2-sha256";
+const ADMIN_PASSWORD_MIN_ITERATIONS = 210_000;
+const ADMIN_PASSWORD_MAX_ITERATIONS = 1_000_000;
+const ADMIN_PASSWORD_MAX_BYTES = 1_024;
 
 function bytesToBase64Url(bytes: Uint8Array) {
   let binary = "";
@@ -61,6 +67,117 @@ function bytesToBase64Url(bytes: Uint8Array) {
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function base64UrlToBytes(value: string) {
+  if (!BASE64_URL.test(value)) return null;
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return bytesToBase64Url(bytes) === value ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseAdminPasswordHash(encoded: string) {
+  const [algorithm, rawIterations, rawSalt, rawHash, extra] = encoded.split("$");
+  const iterations = Number(rawIterations);
+  const salt = rawSalt ? base64UrlToBytes(rawSalt) : null;
+  const hash = rawHash ? base64UrlToBytes(rawHash) : null;
+  if (
+    extra !== undefined || algorithm !== ADMIN_PASSWORD_ALGORITHM ||
+    !Number.isSafeInteger(iterations) || iterations < ADMIN_PASSWORD_MIN_ITERATIONS ||
+    iterations > ADMIN_PASSWORD_MAX_ITERATIONS || salt?.byteLength !== 16 || hash?.byteLength !== 32
+  ) return null;
+  return { iterations, salt, hash };
+}
+
+function passwordBytes(password: string) {
+  const bytes = new TextEncoder().encode(password);
+  return bytes.byteLength > 0 && bytes.byteLength <= ADMIN_PASSWORD_MAX_BYTES ? bytes : null;
+}
+
+async function deriveAdminPassword(
+  password: Uint8Array,
+  salt: Uint8Array,
+  iterations: number,
+  cryptoSource: Crypto,
+) {
+  const passwordBuffer = Uint8Array.from(password).buffer;
+  const saltBuffer = Uint8Array.from(salt).buffer;
+  const key = await cryptoSource.subtle.importKey("raw", passwordBuffer, "PBKDF2", false, ["deriveBits"]);
+  const bits = await cryptoSource.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBuffer, iterations },
+    key,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
+/** Railway stores this encoded verifier; the real admin password is never persisted by the app. */
+export async function createAdminPasswordHash(
+  password: string,
+  options: { iterations?: number; crypto?: Crypto } = {},
+) {
+  const cryptoSource = options.crypto ?? globalThis.crypto;
+  const iterations = options.iterations ?? 310_000;
+  const passwordValue = passwordBytes(password);
+  if (
+    !passwordValue || !Number.isSafeInteger(iterations) ||
+    iterations < ADMIN_PASSWORD_MIN_ITERATIONS || iterations > ADMIN_PASSWORD_MAX_ITERATIONS
+  ) throw new TypeError("Admin parolası veya PBKDF2 iş yükü geçersiz.");
+
+  const salt = new Uint8Array(16);
+  cryptoSource.getRandomValues(salt);
+  const hash = await deriveAdminPassword(passwordValue, salt, iterations, cryptoSource);
+  return `${ADMIN_PASSWORD_ALGORITHM}$${iterations}$${bytesToBase64Url(salt)}$${bytesToBase64Url(hash)}`;
+}
+
+export const ADMIN_PASSWORD_MIN_LENGTH = 8;
+export const ADMIN_PASSWORD_MAX_LENGTH = 128;
+
+/**
+ * What the panel accepts as a new admin password.
+ *
+ * Deliberately a length-and-shape rule rather than a character-class rule: a
+ * long passphrase beats a short password with a symbol in it, and control
+ * characters are refused because they survive neither a form nor a shell.
+ */
+export function isAcceptableAdminPassword(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const characters = [...value];
+  if (characters.length < ADMIN_PASSWORD_MIN_LENGTH || characters.length > ADMIN_PASSWORD_MAX_LENGTH) {
+    return false;
+  }
+  // Surrounding whitespace survives a form field but not a copy-paste, so it is refused rather than trimmed away.
+  if (value.trim() !== value) return false;
+  return characters.every((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code > 31 && code !== 127;
+  });
+}
+
+export function isAdminPasswordHash(value: string) {
+  return parseAdminPasswordHash(value) !== null;
+}
+
+export async function verifyAdminPassword(
+  password: string,
+  encoded: string,
+  cryptoSource: Crypto = globalThis.crypto,
+) {
+  const parsed = parseAdminPasswordHash(encoded);
+  const passwordValue = passwordBytes(password);
+  if (!parsed || !passwordValue) return false;
+
+  const candidate = await deriveAdminPassword(passwordValue, parsed.salt, parsed.iterations, cryptoSource);
+  let difference = 0;
+  for (let index = 0; index < parsed.hash.byteLength; index += 1) {
+    difference |= candidate[index] ^ parsed.hash[index];
+  }
+  return difference === 0;
 }
 
 export async function sha256Hex(value: string, cryptoSource: Crypto = globalThis.crypto) {
@@ -77,6 +194,21 @@ export async function createOpaqueToken(cryptoSource: Crypto = globalThis.crypto
     rawToken,
     tokenHash: await sha256Hex(rawToken, cryptoSource),
   };
+}
+
+/**
+ * PKCE pair for the authorization-code flow.
+ *
+ * The verifier never leaves the server: only its S256 challenge travels to the
+ * provider, so a stolen authorization code cannot be redeemed without it.
+ */
+export async function createPkcePair(cryptoSource: Crypto = globalThis.crypto) {
+  const bytes = new Uint8Array(32);
+  cryptoSource.getRandomValues(bytes);
+  const verifier = bytesToBase64Url(bytes);
+  const digest = await cryptoSource.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+
+  return { verifier, challenge: bytesToBase64Url(new Uint8Array(digest)) };
 }
 
 export function buildSessionCookie(rawToken: string, now = new Date()) {

@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "../_components/icon";
 import {
   ACTIVE_GAMES,
@@ -16,6 +17,7 @@ import {
   getPlan,
   getRegion,
   isServerDraft,
+  sellableSoftware,
   type ActiveGameId,
   type ServerDraft,
 } from "@/lib/catalog";
@@ -35,6 +37,7 @@ export function Configurator({
   requestedGameId,
   requestedPlanId,
 }: ConfiguratorProps) {
+  const router = useRouter();
   const [step, setStep] = useState<ConfiguratorStep>(1);
   const [draft, setDraft] = useState<ServerDraft>(initialDraft);
   const [hydrated, setHydrated] = useState(false);
@@ -42,7 +45,7 @@ export function Configurator({
   const game = getGame(draft.gameId);
   const plan = getPlan(draft.planId);
   const region = getRegion(draft.regionId);
-  const software = game.software.find((item) => item.id === draft.softwareId) ?? game.software[0];
+  const software = sellableSoftware(game).find((item) => item.id === draft.softwareId) ?? sellableSoftware(game)[0];
   const monthlyPrice = calculateMonthlyPrice(draft);
   const nameValid = draft.serverName.trim().length >= 3;
 
@@ -65,7 +68,7 @@ export function Configurator({
           nextDraft = {
             ...nextDraft,
             gameId: requestedGame.id,
-            softwareId: requestedGame.software[0]?.id ?? "",
+            softwareId: sellableSoftware(requestedGame)[0]?.id ?? "",
           };
         }
         if (requestedPlan) nextDraft = { ...nextDraft, planId: requestedPlan.id };
@@ -88,7 +91,7 @@ export function Configurator({
 
   const selectGame = (gameId: ActiveGameId) => {
     const selectedGame = getGame(gameId);
-    updateDraft({ gameId, softwareId: selectedGame.software[0]?.id ?? "" });
+    updateDraft({ gameId, softwareId: sellableSoftware(selectedGame)[0]?.id ?? "" });
   };
 
   const goNext = () => {
@@ -103,8 +106,10 @@ export function Configurator({
   };
 
   const continueToAccount = () => {
+    // The draft is written before navigating so the sign-in page and the later
+    // account import both read the choice the visitor just confirmed.
     window.localStorage.setItem(CONFIGURATOR_STORAGE_KEY, JSON.stringify(draft));
-    window.location.assign("/giris?mode=register&return_to=%2Fpanel");
+    router.push("/giris?mode=register&return_to=%2Fpanel");
   };
 
   return (
@@ -171,7 +176,7 @@ export function Configurator({
               <fieldset className="configFieldset">
                 <legend>Sunucu yazılımı</legend>
                 <div className="softwareChoices">
-                  {game.software.map((item) => (
+                  {sellableSoftware(game).map((item) => (
                     <button aria-pressed={draft.softwareId === item.id} className={draft.softwareId === item.id ? "selected" : ""} key={item.id} onClick={() => updateDraft({ softwareId: item.id })} type="button">
                       <span><b>{item.name}</b>{item.recommended && <em>ÖNERİLEN</em>}</span>
                       <small>{item.description}</small>

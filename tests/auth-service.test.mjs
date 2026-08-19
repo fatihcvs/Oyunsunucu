@@ -51,6 +51,34 @@ class FakeRepository {
     this.sessionLookups.push(tokenHash);
     return this.sessionResult;
   }
+
+  rotations = [];
+  revocations = [];
+  globalRevocations = [];
+  rotationResult = null;
+
+  async rotateSession(input) {
+    this.rotations.push(input);
+    return this.rotationResult;
+  }
+
+  async revokeSession(sessionId, actorUserId) {
+    this.revocations.push({ sessionId, actorUserId });
+    return true;
+  }
+
+  async revokeAllUserSessions(actorUserId) {
+    this.globalRevocations.push(actorUserId);
+    return 4;
+  }
+
+  reuseChecks = [];
+  reuseResult = null;
+
+  async revokeSessionFamilyOnReuse(tokenHash) {
+    this.reuseChecks.push(tokenHash);
+    return this.reuseResult;
+  }
 }
 
 class FakeMailer {
@@ -209,6 +237,113 @@ test("returns a raw session only after the repository atomically exchanges hashe
   assert.equal(exchange.sessionTokenHash, await sha256Hex(result.sessionToken));
   assert.equal(exchange.userAgent.length, 512);
   assert.equal(result.returnTo, "/panel");
+});
+
+test("blocks link-guessing attempts before comparing any token hash", async () => {
+  const repository = new FakeRepository();
+  repository.rateDecision = {
+    allowed: false,
+    remaining: 0,
+    retryAfterMs: 61_000,
+    nextState: { attempts: 11, windowStartedAtMs: 0, blockedUntilMs: 61_000 },
+  };
+  const { service } = setup({ repository });
+
+  await assert.rejects(
+    () => service.consumeMagicLink({ rawToken: "d".repeat(43), clientDiscriminator: "203.0.113.7" }),
+    (error) => {
+      assert.equal(error.status, 429);
+      assert.equal(error.retryAfterSeconds, 61);
+      return true;
+    },
+  );
+  assert.equal(repository.exchanges.length, 0);
+  assert.equal(repository.rateInput.scope, "magic-link-callback");
+  assert.doesNotMatch(repository.rateInput.bucketHash, /203\.0\.113\.7/);
+});
+
+test("rotates a live session into a fresh token without reusing the presented one", async () => {
+  const { service, repository } = setup();
+  repository.sessionResult = {
+    sessionId: "session-id",
+    sessionFamilyId: "family-id",
+    userId: "user-id",
+    email: "player@example.com",
+    displayName: "Oyuncu",
+    expiresAt: new Date("2026-09-14T12:00:00Z"),
+  };
+  repository.rotationResult = {
+    sessionId: "next-session-id",
+    sessionFamilyId: "family-id",
+    expiresAt: new Date("2026-09-14T12:00:00Z"),
+  };
+
+  const presented = "e".repeat(43);
+  const rotated = await service.rotateSession({ rawToken: presented, ipAddress: "203.0.113.7" });
+  const command = repository.rotations[0];
+
+  assert.notEqual(rotated.sessionToken, presented);
+  assert.match(rotated.sessionToken, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(command.sessionId, "session-id");
+  assert.equal(command.actorUserId, "user-id");
+  assert.equal(command.sessionTokenHash, await sha256Hex(rotated.sessionToken));
+  assert.notEqual(command.sessionTokenHash, rotated.sessionToken);
+
+  repository.sessionResult = null;
+  assert.equal(await service.rotateSession({ rawToken: presented }), null);
+});
+
+test("revokes one device or every device only for the presented owner", async () => {
+  const { service, repository } = setup();
+  const rawToken = "f".repeat(43);
+
+  assert.deepEqual(await service.signOut({ rawToken }), { signedOut: false, revokedSessions: 0 });
+  assert.deepEqual(repository.revocations, []);
+
+  repository.sessionResult = {
+    sessionId: "session-id",
+    sessionFamilyId: "family-id",
+    userId: "user-id",
+    email: "player@example.com",
+    displayName: "Oyuncu",
+    expiresAt: new Date("2026-09-14T12:00:00Z"),
+  };
+  assert.deepEqual(await service.signOut({ rawToken }), { signedOut: true, revokedSessions: 1 });
+  assert.deepEqual(repository.revocations, [{ sessionId: "session-id", actorUserId: "user-id" }]);
+
+  assert.deepEqual(await service.signOutEverywhere({ rawToken }), { signedOut: true, revokedSessions: 4 });
+  assert.deepEqual(repository.globalRevocations, ["user-id"]);
+});
+
+test("burns the session family when a replaced token comes back", async () => {
+  const { service, repository } = setup();
+  repository.sessionResult = null;
+  repository.reuseResult = { familyId: "family-id", userId: "user-id", revokedSessions: 2 };
+
+  const replayed = "d".repeat(43);
+  assert.equal(await service.authenticateSession(replayed), null);
+  assert.deepEqual(repository.reuseChecks, [await sha256Hex(replayed)]);
+
+  // A live session must never trigger the reuse path.
+  repository.sessionResult = {
+    sessionId: "session-id",
+    sessionFamilyId: "family-id",
+    userId: "user-id",
+    email: "player@example.com",
+    displayName: "Oyuncu",
+    expiresAt: new Date("2026-09-14T12:00:00Z"),
+  };
+  await service.authenticateSession("e".repeat(43));
+  assert.equal(repository.reuseChecks.length, 1);
+});
+
+test("a failing reuse check never turns into a failed sign-in", async () => {
+  const repository = new FakeRepository();
+  repository.revokeSessionFamilyOnReuse = async () => { throw new Error("veritabani hatasi"); };
+  const { service, operationalErrors } = setup({ repository });
+
+  assert.equal(await service.authenticateSession("f".repeat(43)), null);
+  assert.equal(operationalErrors.length, 1);
 });
 
 test("hashes browser session tokens before lookup", async () => {

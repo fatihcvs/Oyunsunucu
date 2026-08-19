@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ProductHeader } from "../_components/product-header";
-import { PanelDemo } from "./panel-demo";
+import { PanelShell } from "./panel-shell";
 
 export const metadata: Metadata = {
   title: "Oyun Sunucusu Kontrol Paneli Demosu",
@@ -20,7 +20,7 @@ export default function PanelPage() {
     <main className="productPage controlPage">
       <div className="noise" aria-hidden="true" />
       <ProductHeader active="panel" />
-      <PanelDemo />
+      <PanelShell />
     </main>
   );
 }

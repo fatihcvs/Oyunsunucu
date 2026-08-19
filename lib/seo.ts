@@ -6,9 +6,16 @@ export const SITE_ORIGIN =
   "https://oyun-sunucu.fatihcvs55.chatgpt.site";
 
 export const SITE_DESCRIPTION =
-  "Minecraft Java ve Terraria için oyun sunucusu planını oluştur; RAM, yazılım, yedekleme ve Türkçe panel deneyimini tek yerde incele.";
+  "Minecraft Java, Terraria ve Vintage Story için oyun sunucusu planını oluştur; RAM, yazılım, yedekleme ve Türkçe panel deneyimini tek yerde incele.";
 
-export const GAME_LANDING_PATHS: Record<ActiveGameId, string> = {
+/**
+ * Search landing pages, where one exists.
+ *
+ * Being sellable and having a landing page are separate decisions: a new game
+ * can enter the configurator before its search page is written. The map is
+ * partial so the two never get silently conflated.
+ */
+export const GAME_LANDING_PATHS: Partial<Record<ActiveGameId, string>> = {
   minecraft: "/minecraft-sunucu-kiralama",
   terraria: "/terraria-sunucu-kiralama",
 };

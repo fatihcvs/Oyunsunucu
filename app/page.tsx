@@ -189,7 +189,7 @@ export default function Home() {
           {games.map((item) => (
             <article className={"gameCard " + (!item.live ? "soon" : "")} key={item.id}>
               <div className="gameArt" style={{ "--game": item.color } as CSSProperties}><b>{item.letter}</b><span className={item.live ? "live" : ""}><i /> {item.tag}</span></div>
-              <div className="gameInfo"><div><h3>{item.name}</h3><p>{item.desc}</p>{item.live && <a href={GAME_LANDING_PATHS[item.id as ActiveGameId]}>{item.name} sunucusunu incele</a>}</div>{item.live ? <button aria-label={item.name + " sunucusu kur"} onClick={() => configurePlan(item.id as ActiveGameId)} type="button"><Icon name="arrow" /></button> : <small>Haber ver</small>}</div>
+              <div className="gameInfo"><div><h3>{item.name}</h3><p>{item.desc}</p>{item.live && GAME_LANDING_PATHS[item.id as ActiveGameId] && <a href={GAME_LANDING_PATHS[item.id as ActiveGameId]}>{item.name} sunucusunu incele</a>}</div>{item.live ? <button aria-label={item.name + " sunucusu kur"} onClick={() => configurePlan(item.id as ActiveGameId)} type="button"><Icon name="arrow" /></button> : <small>Haber ver</small>}</div>
             </article>
           ))}
         </div>

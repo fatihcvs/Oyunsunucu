@@ -137,6 +137,65 @@ test("scopes session mutations to the authenticated owner", async () => {
 
   assert.equal(changed, false);
   assert.match(database.calls[0].text, /id = \$1::uuid AND user_id = \$2::uuid/);
+  assert.ok(!database.calls.some((call) => call.text.includes("INSERT INTO audit_logs")));
+});
+
+test("audits a revoked session inside the same transaction", async () => {
+  const database = new RecordingDatabase((call) => (
+    call.text.includes("UPDATE auth_sessions") ? { rows: [{ id: "session-id" }] } : { rows: [] }
+  ));
+  const revoked = await new PostgresAuthRepository(database).revokeSession(
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    new Date("2026-08-15T12:00:00Z"),
+  );
+
+  assert.equal(revoked, true);
+  assert.equal(database.transactions, 1);
+  assert.ok(database.calls.some((call) => call.text.includes("'auth.session.revoked'")));
+});
+
+test("rotates a session into the same family and links its predecessor", async () => {
+  const database = new RecordingDatabase((call) => {
+    if (call.text.includes("UPDATE auth_sessions")) return { rows: [{ family_id: "family-id" }] };
+    if (call.text.includes("INSERT INTO auth_sessions")) return { rows: [{ id: "next-session-id" }] };
+    return { rows: [] };
+  });
+  const sessionTokenHash = "c".repeat(64);
+  const result = await new PostgresAuthRepository(database).rotateSession({
+    sessionId: "11111111-1111-4111-8111-111111111111",
+    actorUserId: "22222222-2222-4222-8222-222222222222",
+    sessionTokenHash,
+    sessionExpiresAt: new Date("2026-09-14T12:00:00Z"),
+    now: new Date("2026-08-15T12:00:00Z"),
+    ipAddress: "203.0.113.7",
+    userAgent: "test browser",
+  });
+
+  assert.equal(database.transactions, 1);
+  assert.equal(result.sessionId, "next-session-id");
+  assert.equal(result.sessionFamilyId, "family-id");
+  const insert = database.calls.find((call) => call.text.includes("INSERT INTO auth_sessions"));
+  assert.match(insert.text, /rotated_from_session_id/);
+  assert.ok(insert.values.includes("family-id"));
+  assert.ok(insert.values.includes(sessionTokenHash));
+  assert.ok(database.calls.some((call) => call.text.includes("'auth.session.rotated'")));
+});
+
+test("refuses to rotate a revoked or expired session", async () => {
+  const database = new RecordingDatabase(() => ({ rows: [] }));
+  const result = await new PostgresAuthRepository(database).rotateSession({
+    sessionId: "11111111-1111-4111-8111-111111111111",
+    actorUserId: "22222222-2222-4222-8222-222222222222",
+    sessionTokenHash: "d".repeat(64),
+    sessionExpiresAt: new Date("2026-09-14T12:00:00Z"),
+    now: new Date("2026-08-15T12:00:00Z"),
+    ipAddress: null,
+    userAgent: null,
+  });
+
+  assert.equal(result, null);
+  assert.ok(!database.calls.some((call) => call.text.includes("INSERT INTO auth_sessions")));
 });
 
 test("replays an identical device draft import and rejects a changed payload", async () => {

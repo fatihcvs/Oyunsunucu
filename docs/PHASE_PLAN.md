@@ -8,8 +8,9 @@ ve yönetim deneyimi çıkarmaktır.
 
 İlk beta kapsamı:
 
-- Minecraft Java: Paper, Vanilla ve Fabric
+- Minecraft Java: Paper, Purpur, Vanilla ve Fabric
 - Terraria: Vanilla; tModLoader kontrollü beta
+- Vintage Story: Vanilla (TCP olduğu için ilk fazda barındırılabiliyor)
 - Avrupa Batı / Amsterdam dağıtım bölgesi
 - Aylık paket, günlük yedek seçeneği ve manuel yedek
 - Sunucu başlatma, durdurma, yeniden başlatma, durum ve temel konsol
@@ -17,7 +18,7 @@ ve yönetim deneyimi çıkarmaktır.
 
 İlk beta dışında:
 
-- FiveM, Rust ve diğer UDP ağırlıklı oyunlar
+- FiveM, Rust, Valheim ve diğer UDP ağırlıklı oyunlar
 - Bayi/affiliate sistemi
 - Mobil uygulama
 - Gelişmiş dosya yöneticisi ve SFTP
@@ -167,10 +168,23 @@ hazırlandı. İkinci dilimde 256 bit oturum belirteci/özet sözleşmesi, güve
 tek-seferlik cihaz taslağı aktarımı eklendi. Üçüncü dilimde sürücüden bağımsız
 parametreli PostgreSQL repository'si, atomik magic-link → kullanıcı → oturum
 işlemi, HMAC'li kalıcı oran limiti, başarısız teslimde token iptali, çalışma
-ortamı hazırlık endpoint'i ve güvenli `503` sınırı tamamlandı. Canlı hesap
-açılması; Railway PostgreSQL sürücüsü, migration çalıştırıcısı ve Discord/e-posta
-sağlayıcısı bilgileri bağlandıktan sonra etkinleştirilecek. Çıkış kapısı henüz
-kapanmadı.
+ortamı hazırlık endpoint'i ve güvenli `503` sınırı tamamlandı. Dördüncü dilimde
+Resend/Postmark teslim adaptörü, tek kompozisyon kökü, `/giris/dogrula` onay
+adımı ve doğrulama, oturum okuma, oturum rotasyonu ile çıkış uçları eklendi.
+Beşinci dilimde sürüm tablosu, checksum koruması ve advisory lock içeren
+migration çalıştırıcısı yazıldı; şema ve eşzamanlılık davranışı yerel Docker
+PostgreSQL örneğinde doğrulandı. Bu doğrulama, sahte executor'ların göremediği
+bir denetim kaydı hatasını (`42P18`) ortaya çıkardı ve düzeltildi. Altıncı
+dilimde cihaz taslağını hesaba taşıyan uç eklendi ve kayıt → magic-link →
+oturum → aktarım zinciri gerçek PostgreSQL üzerinde uçtan uca doğrulandı.
+
+Yedinci dilimde PKCE'li Discord OAuth başlangıç ve callback uçları, tek
+kullanımlık `oauth_states` tablosu ve sağlayıcı hesabı eşlemesi eklendi;
+davranış gerçek PostgreSQL üzerinde doğrulandı.
+
+Kod tarafındaki çıkış kapıları kapandı. Kapının tamamen kapanması için kalan tek
+koşul, Railway PostgreSQL bağlantısı ile e-posta/Discord sağlayıcı bilgilerinin
+üretim ortamına girilmesidir.
 
 ### Faz 3 — Sipariş, ödeme ve ticari kayıtlar
 
@@ -196,6 +210,15 @@ Tablolar:
 - Aynı ödeme webhooks'u iki sunucu oluşturmamalı.
 - Ödenen tutar sonradan katalog fiyatı değişse de değişmemeli.
 - Test ödeme, başarısız ödeme ve iade senaryoları uçtan uca geçmeli.
+
+Durum: **Devam ediyor.** İlk dilimde kuruş bazlı para modeli, KDV dahil fiyattan
+vergi ayrıştırma, değiştirilemez fiyat anlık görüntüsü, sipariş durum makinesi ve
+idempotent webhook yolu yazıldı. İlk iki çıkış kapısı gerçek PostgreSQL üzerinde
+kanıtlandı: aynı webhook 10 kez sırayla ve 6 kez eş zamanlı teslim edildiğinde
+yalnızca bir kez uygulandı, ödenen tutar katalog değişse de sabit kaldı.
+Üçüncü kapı ödeme sağlayıcısı adaptörü ve HTTP uçları yazılmadan kapanmaz.
+Ayrıntılar [`docs/ORDER_PAYMENT_FOUNDATION.md`](ORDER_PAYMENT_FOUNDATION.md)
+dosyasındadır.
 
 ### Faz 4 — Railway provisioning kontrol düzlemi
 
@@ -227,6 +250,20 @@ Tablolar:
 - Her hata kullanıcıya anlaşılır durum, operatöre teknik kayıt bırakmalı.
 - Oluşturma sırasında hata olursa sahipsiz service/volume kalmamalı.
 
+Durum: **Devam ediyor.** Kuyruk, kira (lease), üstel geri çekilme, dead-letter ve
+sunucu durum makinesi yazıldı; worker döngüsü ile sağlayıcıdan bağımsız
+`GameServerProvider` sözleşmesi hazır. İlk iki çıkış kapısı kanıtlandı: aynı
+ödenmiş sipariş 10 kez ve 6 eş zamanlı uygulandığında tek sunucu ve tek iş
+oluştu, üç worker aynı işi çekemedi, müşteri mesajı ile teknik ayrıntı ayrı
+saklandı. Worker, sağlayıcının bildirdiği her kaynağı işi tamamlamadan **önce**
+kaydeder, böylece yarım kalan kurulum temizlenebilir bir iz bırakır.
+
+İki sağlayıcı yazıldı ve ikisi de gerçek kaynak oluşturarak doğrulandı:
+`docker` adaptörü yerelde bir Minecraft sunucusu kurdu ve TCP portu yanıt verdi;
+`railway` adaptörü Railway'de servis, volume ve TCP proxy oluşturdu, adres yanıt
+verdi ve kaynaklar silindi. Kalan iş: worker'ın kalıcı bir yerde çalışması,
+başlatma/durdurma/silme yollarının canlıda doğrulanması ve reconciliation.
+
 ### Faz 5 — Gerçek oyun çalışma ortamları
 
 Amaç: İlk iki oyunu veri kaybetmeden ve tekrarlanabilir biçimde çalıştırmak.
@@ -248,26 +285,70 @@ Amaç: İlk iki oyunu veri kaybetmeden ve tekrarlanabilir biçimde çalıştırm
 - Zorla kapanma, dolu disk ve başarısız güncelleme testleri yapılmalı.
 - Yedekten geri dönüş gerçek oyun istemcisiyle doğrulanmalı.
 
+Durum: **Ön prova yapıldı.** Faz 4 sırası beklenmeden, katalog iddialarının
+gerçekliğini ölçmek için yerel Docker üzerinde sertifikasyon provası
+çalıştırıldı: `scripts/certify-game-runtime.mjs` bir birleşimi planın RAM
+sınırıyla başlatır, hazır olma süresini ve belleği ölçer, TCP erişimini dener,
+graceful kapatıp yeniden başlatır ve dünya kimliğinin korunduğunu doğrular.
+Minecraft/Paper 2 GB ve 4 GB planlarında sertifikalandı. Terraria için prova,
+üstteki imajın `SIGTERM` ile kapanmadığını ortaya çıkardı; `SIGTERM`'i konsol
+`exit` komutuna çeviren kendi imajımız yazıldı ve Terraria/Vanilla da
+sertifikalandı. Bulgular ve doğrulanmamış iddialar
+[`docs/GAME_RUNTIME_CERTIFICATION.md`](GAME_RUNTIME_CERTIFICATION.md)
+dosyasındadır. Bu prova çıkış kapısını kapatmaz; zorla kapanma, dolu disk,
+güncelleme ve yedekten dönüş senaryoları hâlâ bekliyor.
+
 ### Faz 6 — Gerçek müşteri paneli ve operasyon
 
 Amaç: Faz 1'deki panel demosunu canlı verilere bağlamak.
 
+Durum: **ikinci dilim tamamlandı; canlı doğrulaması bekliyor.** Panel artık müşterinin gerçek sunucularını
+gösteriyor ve başlat/durdur/yeniden başlat komutlarını kuyruğa veriyor.
+Sunucusu olmayan veya girmemiş ziyaretçi demoyu görüyor; ribbon hangi durumda
+olduğunu açıkça söylüyor. Konsol, yedek ve kaynak grafikleri canlı panelde
+**gösterilmiyor** — kurulmadıkları için iddia da edilmiyorlar. Yönetici paneli
+doğrulanmış müşteriye, ödeme/sipariş uydurmadan, mevcut worker kuyruğu üzerinden
+elle kapalı-beta sunucusu ayırabiliyor.
+
 İşler:
 
-- Gerçek durum, kaynak ve bağlantı bilgileri
-- Başlat/durdur/yeniden başlat için kilitli operasyon işleri
-- RCON üzerinden konsol ve temel oyuncu yönetimi
-- Yedek listeleme, oluşturma ve onaylı geri yükleme
-- Paket yükseltme; fiyat farkı ve veri koruma
-- Bildirimler: kurulum, başarısızlık, yedek, ödeme, kaynak sınırı
-- Yönetici paneli: sipariş arama, işi yeniden deneme, askıya alma
-- Destek talebi ve kullanıcıya görünür olay geçmişi
+- [x] Gerçek durum ve bağlantı bilgileri (`GET /api/servers`)
+- [x] Başlat/durdur/yeniden başlat için kilitli operasyon işleri
+      (`POST /api/servers`, sunucu başına advisory lock)
+- [x] Kullanıcıya görünür olay geçmişi (operatör detayı sızdırılmadan)
+- [ ] Gerçek kaynak (CPU/RAM/oyuncu) ölçümleri
+- [ ] RCON üzerinden konsol ve temel oyuncu yönetimi
+- [ ] Yedek listeleme, oluşturma ve onaylı geri yükleme
+- [ ] Paket yükseltme; fiyat farkı ve veri koruma
+- [ ] Bildirimler: kurulum, başarısızlık, yedek, ödeme, kaynak sınırı
+- [x] Yönetici paneli ilk dilimi: rol tabanlı erişim, operasyon özeti,
+      sipariş/sunucu/iş arama ve başarısız işi yeniden deneme
+- [x] Yönetici panelinden sunucu kurulumu: müşteri, oyun/runtime, paket ve bölge
+      seçimi; açık maliyet onayı, 10 sunucu beta sınırı, idempotent istek ve
+      denetim kaydıyla `create_server` kuyruğuna alma
+- [x] Yönetici paneli ikinci dilimi: sunucu başına yaşam döngüsü komutları
+      (başlat/durdur/yeniden başlat, sahip rolünde silme), müşteri listesi,
+      salt-okunur denetim kaydı, operasyon ekibi üyeliği yönetimi ve
+      yöneticinin kendi parolasını değiştirmesi
+- [ ] İade ve abonelik değişikliği: para hareketi olduğu için ayrı onay akışı
+- [ ] Destek talebi
+- [ ] Sunucu silme: geri alınamaz olduğu ve yedek sistemi olmadığı için
+      müşteriye açılmadı, operatör işi olarak duruyor
 
 Çıkış kapısı:
 
-- Çift tıklama veya eş zamanlı komutlar durum bozulmasına yol açmamalı.
-- Kritik işlemler yeniden kimlik doğrulama ve açık onay gerektirmeli.
-- Destek ekibi müşterinin şifresine veya gizli token'ına ihtiyaç duymamalı.
+- [x] Çift tıklama veya eş zamanlı komutlar durum bozulmasına yol açmamalı.
+      Bekleyen iş varken ikinci komut 409 alıyor; veritabanı tarafında
+      `pg_advisory_xact_lock` ikinci işi engelliyor.
+- [ ] Kritik işlemler yeniden kimlik doğrulama ve açık onay gerektirmeli.
+      Bugün kritik işlem panelde yok; silme açıldığında gerekecek.
+- [x] Destek ekibi müşterinin şifresine veya gizli token'ına ihtiyaç duymamalı.
+      Olay geçmişi müşteri metni ve operatör detayını ayrı tutuyor.
+
+Uçtan uca ölçüm (`scripts/verify-panel.mjs`, gerçek Railway sağlayıcısı):
+hesap → boş panel → sunucu kuruldu (`sakura.proxy.rlwy.net:37445`) → durdur →
+başlat → adres korundu → silindi. 14 doğrulamanın 14'ü geçti; başkasının
+sunucusu 404, yabancı origin 403, işlem sürerken ikinci komut 409.
 
 ### Faz 7 — Güvenlik, maliyet korumaları ve kapalı beta
 

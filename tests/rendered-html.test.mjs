@@ -123,7 +123,39 @@ test("serves robots directives with the sitemap location", async () => {
   assert.match(text, /User-Agent: \*/i);
   assert.match(text, /Allow: \//i);
   assert.match(text, /Disallow: \/api\//i);
+  assert.match(text, /Disallow: \/admin/i);
   assert.match(text, /Sitemap: https:\/\/oyun-sunucu\.fatihcvs55\.chatgpt\.site\/sitemap\.xml/i);
+});
+
+test("renders the admin gate as a private noindex operations page", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/admin", { headers: { accept: "text/html" } }),
+    workerEnv,
+    workerContext,
+  );
+
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Operasyon Yönetim Paneli/);
+  assert.match(html, /OPERASYON KONSOLU/);
+  assert.match(html, /Operasyon verisi hazırlanıyor/);
+  assert.match(html, /<meta name="robots" content="noindex, nofollow"\/>/);
+});
+
+test("returns an honest 503 from the built admin endpoint without database configuration", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/admin", { headers: { accept: "application/json" } }),
+    workerEnv,
+    workerContext,
+  );
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    code: "ADMIN_NOT_CONFIGURED",
+    message: "Yönetim paneli henüz etkin değil.",
+  });
 });
 
 test("preselects a game from a safe configurator query on the first render", async () => {
@@ -141,7 +173,7 @@ test("preselects a game from a safe configurator query on the first render", asy
   assert.match(html, /aria-pressed="true" class="selected"[^>]*>[\s\S]{0,320}Terraria/);
 });
 
-test("renders the honest registration preview without activating an account", async () => {
+test("renders the registration form without claiming a live delivery guarantee", async () => {
   const worker = await loadWorker();
   const response = await worker.fetch(
     new Request("http://localhost/giris?mode=register&return_to=%2Fpanel", {
@@ -154,8 +186,25 @@ test("renders the honest registration preview without activating an account", as
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Hesabını oluşturalım/);
-  assert.match(html, /GERÇEK HESAP OLUŞTURMA KAPALI/);
-  assert.match(html, /e-posta göndermez, oturum açmaz ve kişisel veri kaydetmez/);
+  assert.match(html, /CANLI TESLİMAT ORTAMA BAĞLI/);
+  assert.match(html, /Canlı teslimat yayın ortamına bağlıdır/);
+  assert.match(html, /<meta name="robots" content="noindex, nofollow"\/>/);
+});
+
+test("renders the magic-link confirmation step behind an explicit user action", async () => {
+  const worker = await loadWorker();
+  const response = await worker.fetch(
+    new Request(`http://localhost/giris/dogrula?token=${"a".repeat(43)}`, {
+      headers: { accept: "text/html" },
+    }),
+    workerEnv,
+    workerContext,
+  );
+
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Girişini tamamla/);
+  assert.match(html, /tek kullanımlıktır/);
   assert.match(html, /<meta name="robots" content="noindex, nofollow"\/>/);
 });
 

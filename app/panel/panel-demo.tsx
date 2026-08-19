@@ -13,6 +13,7 @@ import {
   getPlan,
   getRegion,
   isServerDraft,
+  sellableSoftware,
   type ServerDraft,
 } from "@/lib/catalog";
 
@@ -54,7 +55,13 @@ const tabItems: { id: PanelTab; label: string; icon: IconName }[] = [
   { id: "settings", label: "Sunucu ayarları", icon: "settings" },
 ];
 
-export function PanelDemo() {
+/** Why the visitor is looking at the demo; written by the panel shell. */
+export type DemoNotice = {
+  text: string;
+  action?: { href: string; label: string };
+};
+
+export function PanelDemo({ notice }: { notice?: DemoNotice }) {
   const [draft, setDraft] = useState<ServerDraft>(DEFAULT_SERVER_DRAFT);
   const [tab, setTab] = useState<PanelTab>("overview");
   const [status, setStatus] = useState<ServerStatus>("running");
@@ -92,7 +99,7 @@ export function PanelDemo() {
   const game = getGame(draft.gameId);
   const plan = getPlan(draft.planId);
   const region = getRegion(draft.regionId);
-  const software = game.software.find((item) => item.id === draft.softwareId) ?? game.software[0];
+  const software = sellableSoftware(game).find((item) => item.id === draft.softwareId) ?? sellableSoftware(game)[0];
   const monthlyPrice = calculateMonthlyPrice(draft);
 
   const appendConsole = (text: string, tone?: ConsoleLine["tone"]) => {
@@ -165,7 +172,14 @@ export function PanelDemo() {
       </aside>
 
       <section className="controlContent">
-        <div className="demoRibbon"><Icon name="spark" size={16} /><p><b>Çalışan ürün demosu:</b> butonlar ve panel akışları etkileşimlidir; gerçek bir oyun sunucusuna henüz komut göndermez.</p></div>
+        <div className="demoRibbon">
+          <Icon name="spark" size={16} />
+          <p>
+            <b>Çalışan ürün demosu:</b>{" "}
+            {notice?.text ?? "butonlar ve panel akışları etkileşimlidir; gerçek bir oyun sunucusuna henüz komut göndermez."}
+          </p>
+          {notice?.action && <Link href={notice.action.href}>{notice.action.label}</Link>}
+        </div>
         <header className="controlTitlebar">
           <div><span><i className={status} /> {statusLabel}</span><h1>{tabItems.find((item) => item.id === tab)?.label}</h1><p>{draft.serverName} · {region.name} / {region.location}</p></div>
           <div className="controlActions">

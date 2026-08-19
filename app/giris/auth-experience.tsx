@@ -14,7 +14,16 @@ import {
 } from "@/lib/auth-contracts";
 import { CONFIGURATOR_STORAGE_KEY } from "@/lib/catalog";
 
-type SubmitState = "idle" | "ready";
+type SubmitState = "idle" | "pending" | "ready";
+
+const REQUEST_ERROR_MESSAGES: Record<string, string> = {
+  AUTH_NOT_CONFIGURED: "Canlı e-posta girişi henüz açık değil; adresin gönderilmedi ve kaydedilmedi.",
+  AUTH_ADAPTER_NOT_BOUND: "Kimlik deposu yayın ortamında henüz bağlı değil; hesap oluşturulmadı.",
+  RATE_LIMITED: "Çok fazla deneme yapıldı. Kısa bir süre sonra yeniden dene.",
+  INVALID_IDENTITY: "Ad veya e-posta bilgisi geçersiz.",
+};
+
+const GENERIC_REQUEST_ERROR = "İstek şu anda tamamlanamadı. Lütfen daha sonra yeniden dene.";
 
 export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMode; returnTo: string }) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
@@ -23,7 +32,9 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
   const [consent, setConsent] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
-  const [providerNotice, setProviderNotice] = useState(false);
+  const [acceptedMessage, setAcceptedMessage] = useState("");
+  const [requestError, setRequestError] = useState("");
+  const [providerNotice, setProviderNotice] = useState("");
   const [draftFound, setDraftFound] = useState(false);
   const [touched, setTouched] = useState(false);
   const returnLabel = returnTo === "/hesap" ? "Hesap merkezine dön" : "Panel demosuna dön";
@@ -35,6 +46,10 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
       } catch {
         setDraftFound(false);
       }
+      // The Discord callback sends the visitor back here when it cannot finish.
+      if (new URLSearchParams(window.location.search).get("discord") === "rejected") {
+        setProviderNotice("Discord girişi tamamlanamadı. Yeniden deneyebilir veya e-posta ile devam edebilirsin.");
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -42,30 +57,62 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
   const chooseMode = (next: AuthMode) => {
     setMode(next);
     setSubmitState("idle");
-    setProviderNotice(false);
+    setProviderNotice("");
+    setRequestError("");
     setTouched(false);
+  };
+
+  const requestMagicLink = async (payload: {
+    mode: AuthMode;
+    email: string;
+    displayName?: string;
+  }) => {
+    setSubmitState("pending");
+    setRequestError("");
+
+    try {
+      const response = await fetch("/api/auth/email/start", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, returnTo }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (response.ok) {
+        setSubmittedEmail(payload.email);
+        setAcceptedMessage(typeof body?.message === "string" ? body.message : "");
+        setSubmitState("ready");
+        return;
+      }
+
+      setSubmitState("idle");
+      setRequestError(REQUEST_ERROR_MESSAGES[body?.code] ?? GENERIC_REQUEST_ERROR);
+    } catch {
+      setSubmitState("idle");
+      setRequestError(GENERIC_REQUEST_ERROR);
+    }
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched(true);
-    setProviderNotice(false);
+    setProviderNotice("");
 
     if (mode === "signin") {
       if (!isValidEmail(email)) return;
-      setSubmittedEmail(normalizeEmail(email));
-      setSubmitState("ready");
+      void requestMagicLink({ mode, email: normalizeEmail(email) });
       return;
     }
 
     const intent = createRegistrationIntent({ displayName, email, returnTo });
     if (!intent || !consent) return;
-    setSubmittedEmail(intent.email);
-    setSubmitState("ready");
+    void requestMagicLink({ mode, email: intent.email, displayName: intent.displayName });
   };
 
   const reset = () => {
     setSubmitState("idle");
+    setRequestError("");
     setTouched(false);
   };
 
@@ -89,7 +136,7 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
       </div>
 
       <div className="authCardWrap">
-        <div className="authPhaseLabel"><span><i /> Entegrasyon ön izlemesi</span><em>GERÇEK HESAP OLUŞTURMA KAPALI</em></div>
+        <div className="authPhaseLabel"><span><i /> Entegrasyon ön izlemesi</span><em>CANLI TESLİMAT ORTAMA BAĞLI</em></div>
         <section className="authCard" aria-labelledby="auth-title">
           <header>
             <span className="authMark"><Icon name="lock" size={21} /></span>
@@ -104,16 +151,16 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
           {submitState === "ready" ? (
             <div className="authReady" role="status">
               <span><Icon name="check" size={28} /></span>
-              <small>FORM DOĞRULANDI</small>
-              <h3>Doğrulama adımı hazır.</h3>
-              <p><b>{submittedEmail}</b> için gerçek bir e-posta gönderilmedi. PostgreSQL, e-posta sağlayıcısı ve oturum sırrı bağlandığında bu ekran tek kullanımlık bağlantıyı gönderecek.</p>
+              <small>İSTEK ALINDI</small>
+              <h3>Gelen kutunu kontrol et.</h3>
+              <p><b>{submittedEmail}</b> · {acceptedMessage || "Adres uygunsa tek kullanımlık giriş bağlantısı gönderilecektir."} Bağlantı 10 dakika geçerlidir ve yalnızca bir kez kullanılabilir.</p>
               {draftFound && <div><Icon name="server" size={17} /><span><b>Sunucu taslağın korunuyor</b><small>İlk gerçek girişte hesabına yalnızca bir kez aktarılacak.</small></span></div>}
               <div className="authReadyActions"><button onClick={reset} type="button">Bilgileri düzenle</button><Link href={returnTo}>{returnLabel} <Icon name="arrow" size={15} /></Link></div>
             </div>
           ) : (
             <>
-              <button className="discordButton" onClick={() => setProviderNotice(true)} type="button"><span>D</span> Discord ile devam et <Icon name="arrow" size={16} /></button>
-              {providerNotice && <p className="providerNotice" role="status"><Icon name="lock" size={15} /> Discord istemci anahtarları henüz bağlı değil; bu önizlemede dış istek gönderilmedi.</p>}
+              <a className="discordButton" href={`/api/auth/discord/start?return_to=${encodeURIComponent(returnTo)}`}><span>D</span> Discord ile devam et <Icon name="arrow" size={16} /></a>
+              {providerNotice && <p className="providerNotice" role="alert"><Icon name="lock" size={15} /> {providerNotice}</p>}
               <div className="authDivider"><span /> veya e-posta ile <span /></div>
 
               <form className="authForm" noValidate onSubmit={submit}>
@@ -124,9 +171,10 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
                 {mode === "register" && (
                   <label className="authConsent"><input checked={consent} onChange={(event) => setConsent(event.target.checked)} type="checkbox" /><span>Hesabım ve hizmet bildirimleri için verilerimin işlenmesini kabul ediyorum. <small>{CURRENT_CONSENT_VERSION}</small></span>{touched && !consent && <em>Hesap oluşturmak için zorunlu onayı işaretle.</em>}</label>
                 )}
-                <button className="button large full" type="submit">{mode === "signin" ? "Güvenli bağlantı iste" : "Hesabı doğrulamaya başla"}<Icon name="arrow" size={18} /></button>
+                <button className="button large full" disabled={submitState === "pending"} type="submit">{submitState === "pending" ? "Gönderiliyor…" : mode === "signin" ? "Güvenli bağlantı iste" : "Hesabı doğrulamaya başla"}<Icon name="arrow" size={18} /></button>
+                {requestError && <p className="providerNotice" role="alert"><Icon name="lock" size={15} /> {requestError}</p>}
               </form>
-              <p className="authDisclosure"><Icon name="shield" size={14} /> Bu geliştirme sürümü yalnızca formu yerelde doğrular; e-posta göndermez, oturum açmaz ve kişisel veri kaydetmez.</p>
+              <p className="authDisclosure"><Icon name="shield" size={14} /> İstek yalnızca bu siteden gönderilir. Canlı teslimat yayın ortamına bağlıdır; kapalıyken adresin işlenmeden açık bir hata döner.</p>
             </>
           )}
         </section>

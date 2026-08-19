@@ -1,11 +1,25 @@
-export type GameId = "minecraft" | "terraria" | "fivem" | "rust";
-export type ActiveGameId = Extract<GameId, "minecraft" | "terraria">;
+export type GameId = "minecraft" | "terraria" | "vintagestory" | "fivem" | "rust" | "valheim";
+
+/**
+ * Games we can actually host today.
+ *
+ * Railway's first-phase networking is TCP only, so a UDP game cannot be sold
+ * until the second provider lands in Faz 8 — no matter how ready its runtime is.
+ */
+export type ActiveGameId = Extract<GameId, "minecraft" | "terraria" | "vintagestory">;
 
 export type GameSoftware = {
   id: string;
   name: string;
   description: string;
   recommended?: boolean;
+  /**
+   * Announced but not selectable yet.
+   *
+   * A software option is only sellable once a pinned runtime image exists for
+   * it; listing one without an image would sell a server we cannot create.
+   */
+  soon?: boolean;
 };
 
 export type CatalogGame = {
@@ -60,6 +74,7 @@ export const GAME_CATALOG: CatalogGame[] = [
     protocol: "TCP",
     software: [
       { id: "paper", name: "Paper", description: "Eklenti desteği ve yüksek performans.", recommended: true },
+      { id: "purpur", name: "Purpur", description: "Paper tabanlı, ayar esnekliği yüksek sürüm." },
       { id: "vanilla", name: "Vanilla", description: "Oyunun sade, resmi sunucu deneyimi." },
       { id: "fabric", name: "Fabric", description: "Hafif mod paketleri için esnek kurulum." },
     ],
@@ -75,7 +90,20 @@ export const GAME_CATALOG: CatalogGame[] = [
     protocol: "TCP",
     software: [
       { id: "terraria-vanilla", name: "Vanilla", description: "Klasik Terraria çok oyunculu deneyimi.", recommended: true },
-      { id: "tmodloader", name: "tModLoader", description: "Topluluk modları için hazırlanmış kurulum." },
+      { id: "tmodloader", name: "tModLoader", description: "Topluluk modları için hazırlanmış kurulum.", soon: true },
+    ],
+  },
+  {
+    id: "vintagestory",
+    name: "Vintage Story",
+    letter: "V",
+    color: "#c8a15a",
+    tag: "Beta",
+    desc: "Hayatta kalma ve inşa, kalıcı dünyalar.",
+    live: true,
+    protocol: "TCP",
+    software: [
+      { id: "vintagestory-vanilla", name: "Vanilla", description: "Resmi sunucu; mod desteği sonraki dilimde.", recommended: true },
     ],
   },
   {
@@ -87,6 +115,17 @@ export const GAME_CATALOG: CatalogGame[] = [
     desc: "Yeni UDP sunucu ağıyla.",
     live: false,
     protocol: "TCP + UDP",
+    software: [],
+  },
+  {
+    id: "valheim",
+    name: "Valheim",
+    letter: "W",
+    color: "#7fa9c4",
+    tag: "Yakında",
+    desc: "Küçük ekipler için Viking dünyası.",
+    live: false,
+    protocol: "UDP",
     software: [],
   },
   {
@@ -105,6 +144,11 @@ export const GAME_CATALOG: CatalogGame[] = [
 export const ACTIVE_GAMES = GAME_CATALOG.filter(
   (game): game is CatalogGame & { id: ActiveGameId } => game.live,
 );
+
+/** Software a customer can actually order today. */
+export function sellableSoftware(game: CatalogGame) {
+  return game.software.filter((software) => !software.soon);
+}
 
 export const HOSTING_PLANS: HostingPlan[] = [
   { id: "mini-2", ram: 2, label: "Mini", players: "1–6 oyuncu", price: 299, storage: 10, cpu: "Paylaşımlı" },
@@ -127,6 +171,13 @@ export const HOSTING_REGIONS: HostingRegion[] = [
 
 export const BACKUP_MONTHLY_PRICE = 49;
 export const CONFIGURATOR_STORAGE_KEY = "riftory.server-draft.v1";
+export const DRAFT_IMPORT_KEY_STORAGE_KEY = "riftory.server-draft.import-key.v1";
+
+/**
+ * Stamped on every stored draft so a later catalog change stays traceable.
+ * Bump it whenever plans, games or pricing inputs change meaning.
+ */
+export const CATALOG_VERSION = "catalog-2026-08-v1";
 
 export const DEFAULT_SERVER_DRAFT: ServerDraft = {
   gameId: "minecraft",
@@ -166,9 +217,15 @@ export function formatTry(amount: number) {
 export function isServerDraft(value: unknown): value is ServerDraft {
   if (!value || typeof value !== "object") return false;
   const draft = value as Partial<ServerDraft>;
+
+  // The software must be one this game actually sells: a hand-written draft
+  // must not be able to order an option the store does not offer.
+  const game = ACTIVE_GAMES.find((candidate) => candidate.id === draft.gameId);
+  if (!game || !sellableSoftware(game).some((software) => software.id === draft.softwareId)) {
+    return false;
+  }
+
   return (
-    ACTIVE_GAMES.some((game) => game.id === draft.gameId) &&
-    typeof draft.softwareId === "string" &&
     HOSTING_PLANS.some((plan) => plan.id === draft.planId) &&
     HOSTING_REGIONS.some((region) => region.id === draft.regionId) &&
     typeof draft.serverName === "string" &&

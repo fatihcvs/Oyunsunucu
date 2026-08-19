@@ -1,0 +1,16 @@
+node_modules
+dist
+.next
+.wrangler
+.sites-runtime
+.git
+.gitignore
+.env
+.env.*
+coverage
+outputs
+work
+tests
+docs
+*.md
+!README.md

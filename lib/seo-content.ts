@@ -39,7 +39,11 @@ export type GameSeoContent = {
   faq: SeoFaq[];
 };
 
-export const GAME_SEO_CONTENT: Record<ActiveGameId, GameSeoContent> = {
+/** Partial on purpose: see `GAME_LANDING_PATHS` in `seo.ts`. */
+export const GAME_SEO_CONTENT: Partial<Record<ActiveGameId, GameSeoContent>> & {
+  minecraft: GameSeoContent;
+  terraria: GameSeoContent;
+} = {
   minecraft: {
     id: "minecraft",
     slug: "/minecraft-sunucu-kiralama",

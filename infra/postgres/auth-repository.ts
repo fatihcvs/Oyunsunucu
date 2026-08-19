@@ -59,6 +59,48 @@ export type ActiveSessionResult = {
   expiresAt: Date;
 };
 
+export type CreateOAuthStateInput = {
+  provider: "discord";
+  stateHash: string;
+  codeVerifier: string;
+  returnTo: string;
+  expiresAt: Date;
+  requestedIp: string | null;
+};
+
+export type OAuthStateResult = {
+  codeVerifier: string;
+  returnTo: string;
+};
+
+export type OAuthExchangeInput = {
+  provider: "discord";
+  providerAccountId: string;
+  email: string;
+  displayName: string;
+  sessionTokenHash: string;
+  sessionExpiresAt: Date;
+  now: Date;
+  ipAddress: string | null;
+  userAgent: string | null;
+};
+
+export type RotateSessionInput = {
+  sessionId: string;
+  actorUserId: string;
+  sessionTokenHash: string;
+  sessionExpiresAt: Date;
+  now: Date;
+  ipAddress: string | null;
+  userAgent: string | null;
+};
+
+export type RotateSessionResult = {
+  sessionId: string;
+  sessionFamilyId: string;
+  expiresAt: Date;
+};
+
 export class DraftImportConflictError extends Error {
   readonly status = 409;
   readonly code = "DRAFT_IMPORT_CONFLICT";
@@ -311,7 +353,7 @@ export class PostgresAuthRepository {
         `INSERT INTO audit_logs
            (actor_user_id, action, target_type, target_id, ip_address, user_agent, metadata)
          VALUES ($1::uuid, 'auth.magic_link.consumed', 'auth_session', $2, $3, $4,
-                 jsonb_build_object('purpose', $5))`,
+                 jsonb_build_object('purpose', $5::text))`,
         [userId, sessionId, input.ipAddress, input.userAgent, purpose],
       );
 
@@ -322,6 +364,198 @@ export class PostgresAuthRepository {
         email: requiredText(user.email, "users.email"),
         displayName: requiredText(user.display_name, "users.display_name"),
         returnTo: requiredText(challenge.return_to, "verification_tokens.return_to"),
+      };
+    });
+  }
+
+  async createOAuthState(input: CreateOAuthStateInput) {
+    assertSha256(input.stateHash);
+    const result = await this.database.query<{ id: unknown }>(
+      `INSERT INTO oauth_states
+         (provider, state_hash, code_verifier, return_to, expires_at, requested_ip)
+       VALUES ($1, decode($2, 'hex'), $3, $4, $5, $6)
+       RETURNING id::text AS id`,
+      [
+        input.provider,
+        input.stateHash,
+        input.codeVerifier,
+        input.returnTo,
+        input.expiresAt,
+        input.requestedIp,
+      ],
+    );
+    return requiredText(result.rows[0]?.id, "oauth_states.id");
+  }
+
+  /** Single-use: the same state can never be redeemed twice, even concurrently. */
+  async consumeOAuthState(input: {
+    provider: "discord";
+    stateHash: string;
+    now: Date;
+  }): Promise<OAuthStateResult | null> {
+    assertSha256(input.stateHash);
+    const result = await this.database.query<{ code_verifier: unknown; return_to: unknown }>(
+      `UPDATE oauth_states
+          SET consumed_at = $3
+        WHERE provider = $1
+          AND state_hash = decode($2, 'hex')
+          AND consumed_at IS NULL
+          AND expires_at > $3
+        RETURNING code_verifier, return_to`,
+      [input.provider, input.stateHash, input.now],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      codeVerifier: requiredText(row.code_verifier, "oauth_states.code_verifier"),
+      returnTo: requiredText(row.return_to, "oauth_states.return_to"),
+    };
+  }
+
+  /**
+   * Links a provider account to an identity and opens a session in one transaction.
+   *
+   * The provider account is the primary key of the link. A verified provider
+   * email may adopt an existing local identity, but an account already linked to
+   * another user is never re-pointed.
+   */
+  async exchangeOAuthAccount(input: OAuthExchangeInput): Promise<MagicLinkExchangeResult | null> {
+    assertSha256(input.sessionTokenHash);
+
+    return this.database.transaction(async (transaction) => {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`identity:${input.email}`],
+      );
+
+      const linked = await transaction.query<{ user_id: unknown }>(
+        `SELECT user_id::text AS user_id
+           FROM auth_accounts
+          WHERE provider = $1 AND provider_account_id = $2`,
+        [input.provider, input.providerAccountId],
+      );
+
+      let userId = typeof linked.rows[0]?.user_id === "string" ? linked.rows[0].user_id : null;
+      if (!userId) {
+        const existing = await transaction.query<{ id: unknown }>(
+          `SELECT id::text AS id
+             FROM users
+            WHERE email = $1 AND deleted_at IS NULL AND status = 'active'
+            FOR UPDATE`,
+          [input.email],
+        );
+        userId = typeof existing.rows[0]?.id === "string" ? existing.rows[0].id : null;
+      }
+
+      if (!userId) {
+        const created = await transaction.query<{ id: unknown }>(
+          `INSERT INTO users (email, display_name, email_verified_at)
+           VALUES ($1, $2, $3)
+           RETURNING id::text AS id`,
+          [input.email, input.displayName, input.now],
+        );
+        userId = requiredText(created.rows[0]?.id, "users.id");
+      }
+
+      // The stored link is the authority on ownership. On conflict the existing
+      // user_id is kept and returned, so a racing request can never open a
+      // session for a user the provider account does not belong to.
+      const link = await transaction.query<{ user_id: unknown }>(
+        `INSERT INTO auth_accounts (user_id, provider, provider_account_id, provider_email)
+         VALUES ($1::uuid, $2, $3, $4)
+         ON CONFLICT (provider, provider_account_id) DO UPDATE SET
+           provider_email = EXCLUDED.provider_email,
+           updated_at = $5
+         RETURNING user_id::text AS user_id`,
+        [userId, input.provider, input.providerAccountId, input.email, input.now],
+      );
+      userId = requiredText(link.rows[0]?.user_id, "auth_accounts.user_id");
+
+      const user = await transaction.query<{ id: unknown; email: unknown; display_name: unknown }>(
+        `UPDATE users
+            SET email_verified_at = COALESCE(email_verified_at, $2), updated_at = $2
+          WHERE id = $1::uuid AND deleted_at IS NULL AND status = 'active'
+          RETURNING id::text AS id, email, display_name`,
+        [userId, input.now],
+      );
+      if (user.rows.length !== 1) return null;
+
+      const sessionResult = await transaction.query<{ id: unknown; family_id: unknown }>(
+        `INSERT INTO auth_sessions
+           (user_id, token_hash, expires_at, ip_address, user_agent)
+         VALUES ($1::uuid, decode($2, 'hex'), $3, $4, $5)
+         RETURNING id::text AS id, family_id::text AS family_id`,
+        [userId, input.sessionTokenHash, input.sessionExpiresAt, input.ipAddress, input.userAgent],
+      );
+      const sessionId = requiredText(sessionResult.rows[0]?.id, "auth_sessions.id");
+      const sessionFamilyId = requiredText(sessionResult.rows[0]?.family_id, "auth_sessions.family_id");
+
+      await transaction.query(
+        `INSERT INTO audit_logs
+           (actor_user_id, action, target_type, target_id, ip_address, user_agent, metadata, occurred_at)
+         VALUES ($1::uuid, 'auth.oauth.consumed', 'auth_session', $2, $3, $4,
+                 jsonb_build_object('provider', $5::text), $6)`,
+        [userId, sessionId, input.ipAddress, input.userAgent, input.provider, input.now],
+      );
+
+      return {
+        userId,
+        sessionId,
+        sessionFamilyId,
+        email: requiredText(user.rows[0].email, "users.email"),
+        displayName: requiredText(user.rows[0].display_name, "users.display_name"),
+        returnTo: "/panel",
+      };
+    });
+  }
+
+  /**
+   * Deletes identity records that can no longer be used.
+   *
+   * These tables only ever grow: every sign-in attempt writes a challenge, every
+   * Discord redirect a state, every request a rate-limit bucket. Expired rows
+   * carry no value but do carry a destination address, so removing them is both
+   * housekeeping and data minimisation.
+   *
+   * Rate-limit buckets are kept until their block has elapsed; deleting one
+   * early would hand a blocked caller a fresh allowance.
+   */
+  async purgeExpiredAuthRecords(now: Date, retention: { verificationTokenGraceMs: number }) {
+    const consumedBefore = new Date(now.getTime() - retention.verificationTokenGraceMs);
+
+    return this.database.transaction(async (transaction) => {
+      const tokens = await transaction.query<{ id: unknown }>(
+        `DELETE FROM verification_tokens
+          WHERE expires_at < $1
+             OR (consumed_at IS NOT NULL AND consumed_at < $2)
+          RETURNING id`,
+        [now, consumedBefore],
+      );
+      const states = await transaction.query<{ id: unknown }>(
+        `DELETE FROM oauth_states
+          WHERE expires_at < $1 OR consumed_at IS NOT NULL
+          RETURNING id`,
+        [now],
+      );
+      const buckets = await transaction.query<{ scope: unknown }>(
+        `DELETE FROM auth_rate_limits
+          WHERE updated_at < $1 AND (blocked_until IS NULL OR blocked_until < $2)
+          RETURNING scope`,
+        [consumedBefore, now],
+      );
+      const sessions = await transaction.query<{ id: unknown }>(
+        `DELETE FROM auth_sessions
+          WHERE expires_at < $1 OR (revoked_at IS NOT NULL AND revoked_at < $2)
+          RETURNING id`,
+        [now, consumedBefore],
+      );
+
+      return {
+        verificationTokens: tokens.rows.length,
+        oauthStates: states.rows.length,
+        rateLimitBuckets: buckets.rows.length,
+        sessions: sessions.rows.length,
       };
     });
   }
@@ -360,6 +594,49 @@ export class PostgresAuthRepository {
     };
   }
 
+  /**
+   * Reacts to a token that was already replaced.
+   *
+   * A rotated session token is revoked the moment its successor is issued, so a
+   * later presentation means the value was captured. The honest reading is that
+   * the whole chain is compromised: every live session in that family is
+   * revoked and the event is recorded for the operator.
+   */
+  async revokeSessionFamilyOnReuse(tokenHash: string, now: Date) {
+    assertSha256(tokenHash);
+
+    return this.database.transaction(async (transaction) => {
+      const replayed = await transaction.query<{ family_id: unknown; user_id: unknown }>(
+        `SELECT family_id::text AS family_id, user_id::text AS user_id
+           FROM auth_sessions
+          WHERE token_hash = decode($1, 'hex') AND revoked_at IS NOT NULL`,
+        [tokenHash],
+      );
+      const session = replayed.rows[0];
+      if (!session) return null;
+
+      const familyId = requiredText(session.family_id, "auth_sessions.family_id");
+      const userId = requiredText(session.user_id, "users.id");
+      const revoked = await transaction.query<{ id: unknown }>(
+        `UPDATE auth_sessions
+            SET revoked_at = $2
+          WHERE family_id = $1::uuid AND revoked_at IS NULL
+          RETURNING id::text AS id`,
+        [familyId, now],
+      );
+
+      await transaction.query(
+        `INSERT INTO audit_logs
+           (actor_user_id, action, target_type, target_id, metadata, occurred_at)
+         VALUES ($1::uuid, 'auth.session.reuse_detected', 'auth_session_family', $2,
+                 jsonb_build_object('revoked', $3::int), $4)`,
+        [userId, familyId, revoked.rows.length, now],
+      );
+
+      return { familyId, userId, revokedSessions: revoked.rows.length };
+    });
+  }
+
   async touchSession(sessionId: string, actorUserId: string, now: Date) {
     const result = await this.database.query<{ id: unknown }>(
       `UPDATE auth_sessions
@@ -373,14 +650,72 @@ export class PostgresAuthRepository {
   }
 
   async revokeSession(sessionId: string, actorUserId: string, now: Date) {
-    const result = await this.database.query<{ id: unknown }>(
-      `UPDATE auth_sessions
-          SET revoked_at = COALESCE(revoked_at, $3)
-        WHERE id = $1::uuid AND user_id = $2::uuid
-        RETURNING id::text AS id`,
-      [sessionId, actorUserId, now],
-    );
-    return result.rows.length === 1;
+    return this.database.transaction(async (transaction) => {
+      const result = await transaction.query<{ id: unknown }>(
+        `UPDATE auth_sessions
+            SET revoked_at = COALESCE(revoked_at, $3)
+          WHERE id = $1::uuid AND user_id = $2::uuid
+          RETURNING id::text AS id`,
+        [sessionId, actorUserId, now],
+      );
+      if (result.rows.length !== 1) return false;
+
+      await transaction.query(
+        `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, occurred_at)
+         VALUES ($1::uuid, 'auth.session.revoked', 'auth_session', $2, $3)`,
+        [actorUserId, sessionId, now],
+      );
+      return true;
+    });
+  }
+
+  /**
+   * Replaces a live session token inside one transaction. The successor keeps the
+   * original family so a stolen-token replay stays traceable to its origin.
+   */
+  async rotateSession(input: RotateSessionInput): Promise<RotateSessionResult | null> {
+    assertSha256(input.sessionTokenHash);
+
+    return this.database.transaction(async (transaction) => {
+      const revoked = await transaction.query<{ family_id: unknown }>(
+        `UPDATE auth_sessions
+            SET revoked_at = $3
+          WHERE id = $1::uuid AND user_id = $2::uuid
+            AND revoked_at IS NULL AND expires_at > $3
+          RETURNING family_id::text AS family_id`,
+        [input.sessionId, input.actorUserId, input.now],
+      );
+      const previous = revoked.rows[0];
+      if (!previous) return null;
+
+      const familyId = requiredText(previous.family_id, "auth_sessions.family_id");
+      const created = await transaction.query<{ id: unknown }>(
+        `INSERT INTO auth_sessions
+           (user_id, token_hash, expires_at, ip_address, user_agent, family_id, rotated_from_session_id)
+         VALUES ($1::uuid, decode($2, 'hex'), $3, $4, $5, $6::uuid, $7::uuid)
+         RETURNING id::text AS id`,
+        [
+          input.actorUserId,
+          input.sessionTokenHash,
+          input.sessionExpiresAt,
+          input.ipAddress,
+          input.userAgent,
+          familyId,
+          input.sessionId,
+        ],
+      );
+      const sessionId = requiredText(created.rows[0]?.id, "auth_sessions.id");
+
+      await transaction.query(
+        `INSERT INTO audit_logs
+           (actor_user_id, action, target_type, target_id, ip_address, user_agent, metadata, occurred_at)
+         VALUES ($1::uuid, 'auth.session.rotated', 'auth_session', $2, $3, $4,
+                 jsonb_build_object('rotated_from_session_id', $5::text), $6)`,
+        [input.actorUserId, sessionId, input.ipAddress, input.userAgent, input.sessionId, input.now],
+      );
+
+      return { sessionId, sessionFamilyId: familyId, expiresAt: input.sessionExpiresAt };
+    });
   }
 
   async revokeAllUserSessions(actorUserId: string, now: Date) {

@@ -1,0 +1,13 @@
+# Everything the image builds for itself. Uploading these would push hundreds of
+# megabytes of local state into the build context for no benefit.
+node_modules
+dist
+.next
+.wrangler
+.sites-runtime
+outputs
+work
+coverage
+tsconfig.tsbuildinfo
+.env
+.env.*

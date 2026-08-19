@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Icon } from "../_components/icon";
+import { DraftImport } from "../_components/draft-import";
+import { SessionKeepalive } from "../_components/session-keepalive";
 import { ProductFooter } from "../_components/product-footer";
 import { ProductHeader } from "../_components/product-header";
 import { AuthReadiness } from "./auth-readiness";
@@ -17,6 +19,7 @@ export default function AccountPage() {
     <main className="productPage accountPage">
       <div className="noise" aria-hidden="true" />
       <ProductHeader active="account" />
+      <SessionKeepalive />
 
       <section className="accountShell">
         <header className="accountHero">
@@ -29,6 +32,7 @@ export default function AccountPage() {
             <span><Icon name="lock" size={22} /></span>
             <div><small>OTURUM DURUMU</small><b>Henüz giriş yapılmadı</b><p>Gerçek kullanıcı oturumu oluşturulmadı; örnek profil veya sahte sunucu verisi göstermiyoruz.</p></div>
             <div><Link className="button" href="/giris?return_to=%2Fhesap">Giriş akışını gör <Icon name="arrow" size={17} /></Link><Link href="/giris?mode=register&return_to=%2Fhesap">Hesap oluşturma ön izlemesi</Link></div>
+            <DraftImport />
           </div>
         </header>
 
