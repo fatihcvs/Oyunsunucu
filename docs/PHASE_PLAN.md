@@ -469,6 +469,8 @@ reddedeceği bir öneri üretmektir.
   sunucu durumları için olay geçmişine dayalı açıklama
 - Oran sınırlama, maliyet tavanı ve denetim kaydı: her asistan önerisi ve her
   onaylanan işlem `audit_logs` içine yazılır
+- Model sağlayıcısı `AssistantModel` arayüzünün arkasındadır; ilk dilim OpenAI
+  (`gpt-5.6-terra`) ile çalışır ve sağlayıcı değişimi tek bir adaptörü etkiler
 - [x] Kırmızı çizgiler: silme, iade, ödeme ve üyelik işlemleri asistana kapalıdır
 
 Çıkış kapısı:

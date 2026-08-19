@@ -1,6 +1,6 @@
 import {
   createAssistantService,
-  createClaudeAssistantModel,
+  createOpenAiAssistantModel,
   type AssistantModel,
   type AssistantService,
 } from "./assistant-service.ts";
@@ -31,9 +31,9 @@ export function resolveAssistantService(
 ): AssistantResolution {
   if (overrides.assistantService) return { status: "ready", service: overrides.assistantService };
 
-  const apiKey = environment.ANTHROPIC_API_KEY?.trim() ?? "";
+  const apiKey = environment.OPENAI_API_KEY?.trim() ?? "";
   if (!overrides.assistantModel && !apiKey) {
-    return { status: "not_configured", missing: ["ANTHROPIC_API_KEY"] };
+    return { status: "not_configured", missing: ["OPENAI_API_KEY"] };
   }
 
   const servers = resolveServerService(environment, overrides);
@@ -43,7 +43,7 @@ export function resolveAssistantService(
       : { status: "adapter_not_bound" };
   }
 
-  const model = overrides.assistantModel ?? createClaudeAssistantModel({
+  const model = overrides.assistantModel ?? createOpenAiAssistantModel({
     apiKey,
     model: environment.ASSISTANT_MODEL,
   });

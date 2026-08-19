@@ -38,6 +38,11 @@ Model yalnızca dört araçtan birini çağırabilir:
 | `run_command` | `POST /api/servers` komut | `canCommandServer` — durumun kaldırmadığı komut reddedilir |
 | `answer` | — | yalnızca metin döner |
 
+Araçlar düz JSON Schema olarak tanımlanır ve adaptör bunu OpenAI Responses
+API'sinin `function` biçimine çevirir. Model yanıtındaki `arguments` alanı bozuk
+veya nesne olmayan bir JSON içerirse öneri üretilmez; çökme yerine boş girdi
+kabul edilir ve doğrulama zaten reddeder.
+
 Serbest metin SQL, kabuk komutu veya sağlayıcı çağrısı üretilemez; "diğer" veya
 "şunu çalıştır" gibi bir kaçış yolu yoktur. Bilinmeyen bir araç adı geldiğinde
 sonuç bir eylem değil, kelimelerdir.
@@ -75,10 +80,17 @@ edilir.
 
 ## Yapılandırma
 
-Railway `web` servisinde:
+Asistan OpenAI üzerinden çalışır. Railway `web` servisinde:
 
-- `ANTHROPIC_API_KEY` — zorunlu
-- `ASSISTANT_MODEL` — isteğe bağlı; varsayılan `claude-opus-5`
+- `OPENAI_API_KEY` — zorunlu
+- `ASSISTANT_MODEL` — isteğe bağlı; varsayılan `gpt-5.6-terra`.
+  Daha yüksek doğruluk için `gpt-5.6-sol`, daha ucuz ve hızlı için
+  `gpt-5.6-luna` kullanılabilir.
+
+Model sağlayıcısı `AssistantModel` arayüzünün arkasındadır: `propose` çağrısını
+karşılayan tek bir adaptör vardır ve sağlayıcı değişimi yalnızca o dosyayı
+etkiler. Niyet kümesi, doğrulama ve onay akışı sağlayıcıdan bağımsızdır — bu
+yüzden asistan testlerinin hiçbiri gerçek bir model çağırmaz.
 
 Anahtar yoksa uç `503 ASSISTANT_NOT_CONFIGURED` döner ve panel "Asistan henüz
 etkin değil" der. Panelin geri kalanı normal çalışmaya devam eder: asistan bir

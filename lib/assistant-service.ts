@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import {
   buildCommandProposal,
   buildPlanProposal,
@@ -30,15 +30,31 @@ export type AssistantAnswer = {
   refusal: { code: string; message: string } | null;
 };
 
+/**
+ * A tool the model may pick, described in plain JSON Schema.
+ *
+ * Deliberately not a provider's type: the service decides what the assistant
+ * may do, and each adapter translates that into its own wire format. Swapping
+ * the model provider touches one adapter, not the contract.
+ */
+export type AssistantTool = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
 export interface AssistantModel {
   propose(input: {
     system: string;
     userMessage: string;
-    tools: Anthropic.Tool[];
+    tools: AssistantTool[];
   }): Promise<{ text: string; toolName: string | null; toolInput: Record<string, unknown> }>;
 }
 
 const MAX_MESSAGE_LENGTH = 500;
+
+/** Balanced tier: the assistant classifies intent, it does not write essays. */
+export const DEFAULT_ASSISTANT_MODEL = "gpt-5.6-terra";
 
 /**
  * The actions the model may pick from.
@@ -48,14 +64,14 @@ const MAX_MESSAGE_LENGTH = 500;
  * an unhandled request comes back as words rather than as an action nobody
  * reviewed.
  */
-function toolDefinitions(): Anthropic.Tool[] {
+function toolDefinitions(): AssistantTool[] {
   return [
     {
       name: "change_settings",
       description:
         "Sunucunun oyun ayarlarını değiştirmeyi önerir. Yalnızca değişmesi gereken alanları yaz. " +
         "Sunucu yeniden başlatılacağı için kullanıcı onayı istenir.",
-      input_schema: {
+      parameters: {
         type: "object",
         properties: {
           server: { type: "string", description: "Sunucunun adı. Tek sunucu varsa boş bırakılabilir." },
@@ -72,7 +88,7 @@ function toolDefinitions(): Anthropic.Tool[] {
       description:
         "Sunucuyu daha büyük bir pakete taşımayı önerir. Kullanıcı '2 katına çıkar' gibi göreli bir şey " +
         "söylediyse multiplier kullan; belirli bir paket söylediyse planId kullan.",
-      input_schema: {
+      parameters: {
         type: "object",
         properties: {
           server: { type: "string", description: "Sunucunun adı." },
@@ -84,7 +100,7 @@ function toolDefinitions(): Anthropic.Tool[] {
     {
       name: "run_command",
       description: "Sunucuyu başlatmayı, durdurmayı veya yeniden başlatmayı önerir.",
-      input_schema: {
+      parameters: {
         type: "object",
         properties: {
           server: { type: "string", description: "Sunucunun adı." },
@@ -98,7 +114,7 @@ function toolDefinitions(): Anthropic.Tool[] {
       description:
         "Bir işlem önermeden yalnızca cevap verir. Soru sorulduğunda, istek kapsam dışıysa veya " +
         "bilgi eksikse bunu kullan.",
-      input_schema: {
+      parameters: {
         type: "object",
         properties: { message: { type: "string", description: "Kullanıcıya verilecek Türkçe cevap." } },
         required: ["message"],
@@ -157,39 +173,60 @@ function buildSystemPrompt(servers: readonly AssistantServerContext[]) {
   ].join("\n");
 }
 
-/** The Claude-backed model adapter. Absent configuration is reported, never faked. */
-export function createClaudeAssistantModel(options: {
+/**
+ * The OpenAI-backed model adapter.
+ *
+ * Uses the Responses API, whose tool calls arrive as `function_call` items in
+ * `output`. Only the first one is read: the contract allows a single proposal
+ * per turn, so a model that emits several is treated as having proposed the
+ * first and said the rest in words.
+ */
+export function createOpenAiAssistantModel(options: {
   apiKey: string;
   model?: string;
-  client?: Anthropic;
+  client?: OpenAI;
 }): AssistantModel {
-  const client = options.client ?? new Anthropic({ apiKey: options.apiKey });
-  const model = options.model?.trim() || "claude-opus-5";
+  const client = options.client ?? new OpenAI({ apiKey: options.apiKey });
+  const model = options.model?.trim() || DEFAULT_ASSISTANT_MODEL;
 
   return {
     async propose(input) {
-      const response = await client.messages.create({
+      const response = await client.responses.create({
         model,
-        max_tokens: 2_048,
-        thinking: { type: "adaptive" },
-        system: input.system,
-        tools: input.tools,
-        messages: [{ role: "user", content: input.userMessage }],
+        instructions: input.system,
+        input: [{ role: "user", content: input.userMessage }],
+        tools: input.tools.map((tool) => ({
+          type: "function" as const,
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          strict: false,
+        })),
       });
 
-      const text = response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim();
-      const toolUse = response.content.find(
-        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+      const call = response.output.find(
+        (item): item is typeof item & { type: "function_call"; name: string; arguments: string } =>
+          item.type === "function_call",
       );
 
+      let toolInput: Record<string, unknown> = {};
+      if (call) {
+        try {
+          const parsed: unknown = JSON.parse(call.arguments);
+          // A model may return any JSON here; only an object can be a tool input.
+          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+            toolInput = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // Malformed arguments mean no usable proposal, not a crash.
+          toolInput = {};
+        }
+      }
+
       return {
-        text,
-        toolName: toolUse?.name ?? null,
-        toolInput: (toolUse?.input ?? {}) as Record<string, unknown>,
+        text: (response.output_text ?? "").trim(),
+        toolName: call?.name ?? null,
+        toolInput,
       };
     },
   };

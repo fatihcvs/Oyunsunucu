@@ -38,7 +38,7 @@ durumundadır.
   başarısız işi kontrollü yeniden deneme
 - `/api/admin/session` — yalnızca üyeliği olan hesaba oturum açan admin parola girişi
 - `/api/admin/password` — yöneticinin kendi parolasını değiştirmesi
-- `/api/assistant` — doğal dil isteğini onaya sunulan bir öneriye çeviren asistan
+- `/api/assistant` — doğal dil isteğini onaya sunulan bir öneriye çeviren asistan (OpenAI)
 
 Yapılandırıcı seçimi tarayıcıda yerel taslak olarak saklar ve panel demosuna
 aktarır. PostgreSQL kimlik repository'si, magic-link servisi, e-posta teslim
