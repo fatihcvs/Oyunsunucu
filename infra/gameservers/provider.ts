@@ -14,6 +14,8 @@ export type ServerSpec = {
   memoryMb: number;
   storageGb: number;
   regionId: string;
+  /** Customer-chosen runtime settings, already validated against the game catalogue. */
+  settings?: Record<string, string | number | boolean>;
 };
 
 export type ProviderResourceRef = {
@@ -32,6 +34,14 @@ export interface GameServerProvider {
   startServer(serverId: string): Promise<void>;
   stopServer(serverId: string): Promise<void>;
   restartServer(serverId: string): Promise<void>;
+  /**
+   * Writes the settings into the running server and restarts it.
+   *
+   * Takes the whole spec rather than a diff: the runtime reads its
+   * configuration at boot, so every apply is a full statement of what the
+   * server should be, and a retried job converges on the same state.
+   */
+  applySettings(spec: ServerSpec): Promise<void>;
   deleteServer(serverId: string): Promise<void>;
   getConnectionInfo(serverId: string): Promise<{ host: string; port: number } | null>;
 }

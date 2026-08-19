@@ -1,4 +1,5 @@
 import { heapMegabytes } from "./runtime-catalog.ts";
+import { settingsToContainerVariables } from "../../lib/server-settings.ts";
 import {
   ProviderError,
   type GameServerProvider,
@@ -68,6 +69,10 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
 
   /** Game-specific container variables, mirroring the certified runtimes. */
   function variablesFor(spec: ServerSpec): Record<string, string> {
+    return { ...baseVariablesFor(spec), ...settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name) };
+  }
+
+  function baseVariablesFor(spec: ServerSpec): Record<string, string> {
     const { runtime } = spec;
     if (runtime.gameId === "minecraft") {
       if (!options.minecraftEulaAccepted) {
@@ -253,6 +258,35 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
     async restartServer(serverId: string) {
       await setSleeping(serverId, true, "restart_server");
       await setSleeping(serverId, false, "restart_server");
+    },
+
+    /**
+     * Upserts the derived variables and cycles the service.
+     *
+     * `replace: false` keeps the variables the runtime needs but the customer
+     * never sees (EULA, TYPE, MEMORY): a settings change must not be able to
+     * strip the server of the values that make it boot at all.
+     */
+    async applySettings(spec: ServerSpec) {
+      const serviceId = await findExistingService(serviceName(spec.serverId));
+      if (!serviceId) throw new ProviderError("apply_settings", "Servis bulunamadı.", false);
+
+      await graphql(
+        "apply_settings",
+        `mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }`,
+        {
+          input: {
+            projectId: options.projectId,
+            environmentId: options.environmentId,
+            serviceId,
+            replace: false,
+            variables: settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name),
+          },
+        },
+      );
+
+      await setSleeping(spec.serverId, true, "apply_settings");
+      await setSleeping(spec.serverId, false, "apply_settings");
     },
 
     async deleteServer(serverId: string) {

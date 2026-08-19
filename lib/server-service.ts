@@ -9,6 +9,15 @@ import type {
   PostgresProvisioningRepository,
   ServerEvent,
 } from "../infra/postgres/provisioning-repository.ts";
+import { getPlan } from "./catalog.ts";
+import {
+  normalizeStoredSettings,
+  settingFields,
+  supportsSettings,
+  validateSettings,
+  type ServerSettings,
+  type SettingField,
+} from "./server-settings.ts";
 
 export type ServerServiceDependencies = {
   auth: AuthService;
@@ -30,9 +39,17 @@ export type PanelServer = {
   /** The command in flight, if any; while it runs no other command is offered. */
   busyWith: string | null;
   availableCommands: ServerCommand[];
+  /** The editable fields for this game, already narrowed to what the plan allows. */
+  settingFields: readonly SettingField[];
+  settings: ServerSettings;
+  /** False while a job is in flight or the state cannot take a restart. */
+  canEditSettings: boolean;
   createdAt: string;
   updatedAt: string;
 };
+
+/** Settings are pushed by restarting, so only a running or stopped server takes them. */
+const SETTINGS_ALLOWED_STATUSES = ["online", "suspended"] as const;
 
 export class ServerFlowError extends Error {
   readonly status: number;
@@ -55,6 +72,8 @@ function toPanelServer(server: OwnedServer): PanelServer {
         canCommandServer(server.status, command),
       );
 
+  const memoryMb = getPlan(server.planId).ram * 1_024;
+
   return {
     serverId: server.serverId,
     name: server.name,
@@ -66,6 +85,11 @@ function toPanelServer(server: OwnedServer): PanelServer {
     connection: server.connection,
     busyWith: server.pendingJobKind,
     availableCommands: available,
+    settingFields: settingFields(server.gameId, memoryMb),
+    settings: normalizeStoredSettings(server.gameId, memoryMb, server.settings),
+    canEditSettings: !server.pendingJobKind &&
+      supportsSettings(server.gameId) &&
+      (SETTINGS_ALLOWED_STATUSES as readonly string[]).includes(server.status),
     createdAt: server.createdAt,
     updatedAt: server.updatedAt,
   };
@@ -169,6 +193,71 @@ export function createServerService(dependencies: ServerServiceDependencies) {
       } catch (error) {
         report(error);
         throw new ServerFlowError(503, "COMMAND_UNAVAILABLE", "İstek şu anda sıraya alınamadı.");
+      }
+    },
+
+    /**
+     * Saves runtime settings and queues the restart that makes them real.
+     *
+     * The panel is told plainly that this restarts the server: the runtime
+     * reads its configuration at boot, so there is no way to change difficulty
+     * or player count without one, and hiding that would surprise players who
+     * are online at the time.
+     */
+    async saveSettings(input: { rawToken: string; serverId: string; settings: unknown }) {
+      const session = await requireSession(input.rawToken);
+
+      let owned: OwnedServer[];
+      try {
+        owned = await dependencies.servers.listServersForOwner(session.userId);
+      } catch (error) {
+        report(error);
+        throw new ServerFlowError(503, "SERVERS_UNAVAILABLE", "Sunucu şu anda okunamadı.");
+      }
+
+      const server = owned.find((candidate) => candidate.serverId === input.serverId);
+      // A stranger's server answers exactly like a missing one.
+      if (!server) throw new ServerFlowError(404, "SERVER_NOT_FOUND", "Sunucu bulunamadı.");
+      if (server.pendingJobKind) {
+        throw new ServerFlowError(409, "SERVER_BUSY", "Sunucuda bekleyen bir işlem var.");
+      }
+      if (!(SETTINGS_ALLOWED_STATUSES as readonly string[]).includes(server.status)) {
+        throw new ServerFlowError(409, "SETTINGS_NOT_ALLOWED", "Sunucu bu durumdayken ayar değiştirilemez.");
+      }
+
+      const memoryMb = getPlan(server.planId).ram * 1_024;
+      const validation = validateSettings(server.gameId, memoryMb, input.settings);
+      if (!validation.ok) {
+        throw new ServerFlowError(400, validation.code, validation.message);
+      }
+
+      try {
+        const outcome = await dependencies.servers.saveSettings({
+          serverId: input.serverId,
+          ownerUserId: session.userId,
+          settings: validation.settings,
+          allowedStatuses: [...SETTINGS_ALLOWED_STATUSES],
+          now: now(),
+        });
+        if (outcome.status === "not_found") {
+          throw new ServerFlowError(404, "SERVER_NOT_FOUND", "Sunucu bulunamadı.");
+        }
+        if (outcome.status === "not_allowed") {
+          throw new ServerFlowError(409, "SETTINGS_NOT_ALLOWED", "Sunucu bu durumdayken ayar değiştirilemez.");
+        }
+        if (outcome.status !== "queued") {
+          throw new ServerFlowError(409, "SERVER_BUSY", "Sunucuda bekleyen bir işlem var.");
+        }
+        return {
+          saved: true,
+          jobId: outcome.jobId,
+          settings: validation.settings,
+          message: "Ayarlar kaydedildi; sunucu yeni ayarlarla yeniden başlatılıyor.",
+        };
+      } catch (error) {
+        if (error instanceof ServerFlowError) throw error;
+        report(error);
+        throw new ServerFlowError(503, "SETTINGS_UNAVAILABLE", "Ayarlar şu anda kaydedilemedi.");
       }
     },
   };

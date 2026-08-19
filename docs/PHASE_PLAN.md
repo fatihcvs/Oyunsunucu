@@ -305,7 +305,10 @@ Amaç: Faz 1'deki panel demosunu canlı verilere bağlamak.
 Durum: **ikinci dilim tamamlandı; canlı doğrulaması bekliyor.** Panel artık müşterinin gerçek sunucularını
 gösteriyor ve başlat/durdur/yeniden başlat komutlarını kuyruğa veriyor.
 Sunucusu olmayan veya girmemiş ziyaretçi demoyu görüyor; ribbon hangi durumda
-olduğunu açıkça söylüyor. Konsol, yedek ve kaynak grafikleri canlı panelde
+olduğunu açıkça söylüyor. Müşteri artık sunucusunun karşılama mesajını, oyuncu sınırını, zorluğunu, oyun
+modunu, PvP ve beyaz liste durumunu panelden değiştirebiliyor; değişiklik
+doğrulanıp veritabanına yazılıyor ve aynı kuyruk üzerinden sağlayıcıya
+uygulanıyor. Konsol, yedek ve kaynak grafikleri canlı panelde
 **gösterilmiyor** — kurulmadıkları için iddia da edilmiyorlar. Yönetici paneli
 doğrulanmış müşteriye, ödeme/sipariş uydurmadan, mevcut worker kuyruğu üzerinden
 elle kapalı-beta sunucusu ayırabiliyor.
@@ -319,6 +322,8 @@ elle kapalı-beta sunucusu ayırabiliyor.
 - [ ] Gerçek kaynak (CPU/RAM/oyuncu) ölçümleri
 - [ ] RCON üzerinden konsol ve temel oyuncu yönetimi
 - [ ] Yedek listeleme, oluşturma ve onaylı geri yükleme
+- [x] Sunucu ayarları: oyun bazlı ayar sözleşmesi, panelden düzenleme ve
+      ayarı sağlayıcıya uygulayan kuyruk işi (`apply_settings`)
 - [ ] Paket yükseltme; fiyat farkı ve veri koruma
 - [ ] Bildirimler: kurulum, başarısızlık, yedek, ödeme, kaynak sınırı
 - [x] Yönetici paneli ilk dilimi: rol tabanlı erişim, operasyon özeti,
@@ -390,6 +395,84 @@ Amaç: Railway TCP sınırını ürün çekirdeğini değiştirmeden aşmak.
 - Sağlayıcı değişimi ödeme, sipariş ve panel veri modelini değiştirmemeli.
 - Her yeni oyun için bağımsız yük, ağ, yedek ve güncelleme sertifikasyonu yapılmalı.
 
+### Faz 9 — Nitrado ölçeği: kapasite, yerleştirme ve kendi kendine iyileşme
+
+Amaç: Onlarca müşteri sunucusunu tek tek elle takip etmeden, öngörülebilir
+maliyet ve kesintisiz kapasiteyle taşımak.
+
+Bugünkü sınır dürüstçe şudur: kapalı beta 10 sunucuyla sınırlı, kapasite tek bir
+sayaçla korunuyor, sağlayıcı seçimi sabit ve bir sunucu bozulduğunda düzeltme
+operatör işi. Nitrado ölçeği bu üç varsayımın hepsini kaldırmayı gerektirir.
+
+İşler:
+
+- Kapasite modeli: bölge ve sağlayıcı başına toplam CPU/RAM/disk envanteri,
+  ayrılmış (reserved) ve gerçekten kullanılan kaynak ayrımı
+- Yerleştirme (placement) kararı: yeni sunucu hangi bölgeye ve hangi sağlayıcıya
+  düşecek — oyun, plan, doluluk ve maliyete göre tek bir saf fonksiyon
+- Aşırı satış (overcommit) politikası ve sert tavan: bir müşterinin sunucusu
+  başka müşterinin kaynağını yiyemez
+- Reconciliation döngüsü: veritabanı ile sağlayıcı gerçeğini periyodik
+  karşılaştırma; sahipsiz servis, sahipsiz volume ve kaybolmuş proxy tespiti
+- Kendi kendine iyileşme: çökmüş konteyner için sınırlı otomatik yeniden
+  başlatma, tekrar eden hata için otomatik askıya alma ve operatör alarmı
+- Kaynak ölçümü: sunucu başına CPU/RAM/oyuncu telemetrisi, panelde grafik ve
+  plan yükseltme önerisi için veri
+- Toplu işlemler: birden çok sunucuya sıralı, kilit korumalı bakım komutu
+- Kapalı beta sınırının kaldırılması ve yerine gerçek kapasite kontrolü
+
+Çıkış kapısı:
+
+- 50 eş zamanlı sunucu simülasyonunda yerleştirme kararı hiçbir bölgeyi
+  kapasitesinin üzerine çıkarmamalı.
+- Reconciliation, elle bozulmuş bir durumu (silinmiş servis, kaybolan proxy)
+  operatöre bildirmeli ve veritabanını gerçekle hizalamalı.
+- Otomatik yeniden başlatma bir hata döngüsüne girmemeli; üst sınırda askıya
+  alıp alarm üretmeli.
+- Bir sunucunun ölçülen kaynağı ile faturalanan planı panelde tutarlı olmalı.
+
+### Faz 10 — Riftory Asistanı: doğal dil ile sunucu yönetimi
+
+Amaç: "Sunucuyu 2x'e al", "zorluğu zor yap", "arkadaşlarım giremiyor" gibi
+cümleleri, panelin zaten yapabildiği güvenli işlemlere çevirmek.
+
+Temel mimari kural: **asistan yeni bir yetki değildir.** Modelin ürettiği hiçbir
+şey doğrudan sağlayıcıya, veritabanına veya iş kuyruğuna gitmez. Asistan yalnızca
+niyeti mevcut sözleşmelere çevirir; çeviriyi kullanıcı onaylar; onaylanan istek
+normal servis katmanından, normal doğrulama ve idempotency kurallarıyla geçer.
+Bu sayede asistan yanlış anlasa bile yapabileceği en kötü şey, kullanıcının
+reddedeceği bir öneri üretmektir.
+
+İşler:
+
+- Niyet sözleşmesi: modelin döndürebileceği kapalı bir işlem kümesi
+  (`change_setting`, `resize_plan`, `restart`, `explain_status`, `create_backup`)
+  ve her birinin şeması
+- Araç (tool) tanımları: her işlem mevcut servis fonksiyonuna birebir bağlanır;
+  model serbest metin SQL, kabuk komutu veya sağlayıcı çağrısı üretemez
+- Onay adımı: her öneri "ne değişecek, ne kadar sürecek, aylık maliyeti nasıl
+  etkileyecek, sunucu yeniden başlayacak mı" bilgisiyle gösterilir
+- Bağlam: yalnızca kullanıcının kendi sunucuları, ayarları ve olay geçmişi;
+  başka müşterinin verisi bağlama girmez
+- "2x" gibi göreli ifadelerin katalogdan çözülmesi: mevcut paket → bir üst paket,
+  fiyat farkı ve veri koruma garantisi
+- Sorun giderme yanıtları: bağlanamama, whitelist, sürüm uyuşmazlığı ve dolu
+  sunucu durumları için olay geçmişine dayalı açıklama
+- Oran sınırlama, maliyet tavanı ve denetim kaydı: her asistan önerisi ve her
+  onaylanan işlem `audit_logs` içine yazılır
+- Kırmızı çizgiler: silme, iade, ödeme ve üyelik işlemleri asistana kapalıdır
+
+Çıkış kapısı:
+
+- Asistanın ürettiği hiçbir işlem, kullanıcının panelden zaten yapamayacağı bir
+  şeyi yapamamalı; yetki kontrolü servis katmanında aynı kalmalı.
+- Onaysız hiçbir değişiklik uygulanmamalı; onay ekranı gerçek maliyet ve kesinti
+  süresini göstermeli.
+- Model erişilemez veya anlamsız cevap verdiğinde panel normal çalışmaya devam
+  etmeli; asistan bir bağımlılık değil, bir kolaylık katmanı olmalı.
+- İstem enjeksiyonu denemesi (sunucu adı veya MOTD içine gömülü talimat)
+  yetkisiz bir işlem üretmemeli.
+
 ## 4. Test stratejisi
 
 Her faz bitmeden aşağıdaki katmanlardan ilgili olanlar geçer:
@@ -415,6 +498,8 @@ Tek geliştirici + yoğun yapay zekâ desteğiyle gerçekçi aralık:
 - Faz 6–7: 2–3 hafta
 - İlk güvenilir kapalı beta: toplam 8–11 hafta
 - Faz 8: sağlayıcı ve oyun sertifikasyonuna göre ayrıca 3–6 hafta
+- Faz 9 (ölçek): 3–5 hafta; kapasite ve reconciliation gerçek yükle ölçülür
+- Faz 10 (asistan): 2–3 hafta; niyet kümesi dar tutulduğu sürece
 
 Bu süreler ödeme sağlayıcısı/şirket hesabı, Railway erişimi ve alan adı hazırsa
 geçerlidir. Nitrado ölçeği değil, güvenilir ilk ticari beta hedeflenmektedir.

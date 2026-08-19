@@ -107,6 +107,7 @@ test("keeps the checked-in migration files loadable and ordered", async () => {
     "0006_provisioning",
     "0007_admin_console",
     "0008_admin_credentials",
+    "0009_server_settings",
   ]);
   assert.ok(files.every((migration) => migration.sql.includes("BEGIN;")));
 });

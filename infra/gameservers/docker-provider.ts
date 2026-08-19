@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { settingsToContainerVariables } from "../../lib/server-settings.ts";
 import { promisify } from "node:util";
 import { heapMegabytes } from "./runtime-catalog.ts";
 import {
@@ -47,6 +48,14 @@ export function createDockerGameServerProvider(options: DockerProviderOptions): 
 
   /** Per-game container settings, derived from the certified runtimes. */
   function environmentFor(spec: ServerSpec) {
+    return [
+      ...baseEnvironmentFor(spec),
+      ...Object.entries(settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name))
+        .flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+    ];
+  }
+
+  function baseEnvironmentFor(spec: ServerSpec) {
     const { runtime } = spec;
     if (runtime.gameId === "minecraft") {
       if (!options.minecraftEulaAccepted) {
@@ -128,6 +137,35 @@ export function createDockerGameServerProvider(options: DockerProviderOptions): 
 
     async startServer(serverId: string) {
       await docker(["start", containerName(serverId)], "start_server");
+    },
+
+    /**
+     * Recreates the container with the new environment.
+     *
+     * Docker cannot rewrite the environment of an existing container, and the
+     * runtime only reads its configuration at boot. The volume is untouched, so
+     * the world survives; only the container identity changes.
+     */
+    async applySettings(spec: ServerSpec) {
+      const container = containerName(spec.serverId);
+      const volume = volumeName(spec.serverId);
+      if (!spec.runtime.image) {
+        throw new ProviderError("apply_settings", "Çalışma ortamı imajı sabitlenmemiş.", false);
+      }
+
+      await docker(["rm", "-f", container], "apply_settings", { allowFailure: true });
+      await docker([
+        "run", "-d",
+        "--name", container,
+        "--restart", "unless-stopped",
+        "--memory", `${spec.memoryMb}m`,
+        "--memory-swap", `${spec.memoryMb}m`,
+        "--label", "riftory.server-id=" + spec.serverId,
+        "-p", `0:${spec.runtime.containerPort}`,
+        "-v", `${volume}:${spec.runtime.dataPath}`,
+        ...environmentFor(spec),
+        spec.runtime.image,
+      ], "apply_settings");
     },
 
     async stopServer(serverId: string) {

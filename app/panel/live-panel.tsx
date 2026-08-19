@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "../_components/icon";
+import { ServerSettingsCard, type SettingField, type SettingValue } from "./server-settings-card";
 import { getGame, getPlan, getRegion, type GameId } from "@/lib/catalog";
 
 export type PanelServer = {
@@ -16,6 +17,9 @@ export type PanelServer = {
   connection: { host: string; port: number } | null;
   busyWith: string | null;
   availableCommands: string[];
+  settingFields: SettingField[];
+  settings: Record<string, SettingValue>;
+  canEditSettings: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -259,12 +263,23 @@ export function LivePanel({
 
           <ServerHistory serverId={active.serverId} updatedAt={active.updatedAt} />
 
+          <ServerSettingsCard
+            busyReason={active.busyWith
+              ? "Sunucuda bekleyen bir işlem var; bitince ayarlar yeniden açılır."
+              : "Ayarlar yalnızca çalışan veya durdurulmuş sunucuda değiştirilebilir."}
+            editable={active.canEditSettings}
+            fields={active.settingFields ?? []}
+            onSaved={(message) => { setToast(message); void onRefresh(); }}
+            serverId={active.serverId}
+            values={active.settings ?? {}}
+          />
+
           <section className="panelNotice">
             <Icon name="terminal" size={18} />
             <p>
               <b>Konsol, yedekleme ve kaynak grafikleri bu sunucuda henüz yok.</b>
               Kurulmadıkları için panelde gösterilmiyorlar. Yapılabilecek işlemler
-              yukarıdaki butonlarda: başlat, durdur ve yeniden başlat.
+              yukarıdaki butonlarda ve ayarlar bölümünde.
             </p>
           </section>
         </div>

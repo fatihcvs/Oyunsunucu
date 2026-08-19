@@ -1,4 +1,5 @@
 import { getPlan } from "./catalog.ts";
+import { normalizeStoredSettings } from "./server-settings.ts";
 import { heapMegabytes } from "../infra/gameservers/runtime-catalog.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import { ProviderError, type GameServerProvider } from "../infra/gameservers/provider.ts";
@@ -56,6 +57,7 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
       memoryMb,
       storageGb: plan.storage,
       regionId: server.regionId,
+      settings: normalizeStoredSettings(server.gameId, memoryMb, server.settings),
     });
 
     for (const resource of provisioned.resources) {
@@ -118,6 +120,36 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
         serverId: job.serverId,
         serverStatus: "online",
         customerMessage: "Sunucu yeniden başlatıldı.",
+        now: now(),
+      });
+    },
+    apply_settings: async (job) => {
+      const serverId = requireServerId(job);
+      const server = await dependencies.repository.findServer(serverId);
+      if (!server) throw new ProviderError("apply_settings", "Sunucu kaydı bulunamadı.", false);
+
+      const runtime = findGameRuntime(server.gameId, server.softwareId);
+      if (!runtime?.image) {
+        throw new ProviderError("apply_settings", "Çalışma ortamı çözülmemiş.", false);
+      }
+      const plan = getPlan(server.planId);
+      const memoryMb = plan.ram * 1024;
+
+      await dependencies.provider.applySettings({
+        serverId,
+        name: server.name,
+        runtime,
+        memoryMb,
+        storageGb: plan.storage,
+        regionId: server.regionId,
+        settings: normalizeStoredSettings(server.gameId, memoryMb, server.settings),
+      });
+
+      await dependencies.repository.completeJob({
+        jobId: job.jobId,
+        serverId: job.serverId,
+        serverStatus: "online",
+        customerMessage: "Yeni ayarlar uygulandı ve sunucu yeniden başlatıldı.",
         now: now(),
       });
     },

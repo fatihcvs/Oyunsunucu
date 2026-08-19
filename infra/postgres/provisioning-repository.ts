@@ -18,6 +18,8 @@ export type ServerRecord = {
   planId: string;
   regionId: string;
   name: string;
+  /** Raw stored settings; callers normalise them against the game catalogue. */
+  settings: Record<string, unknown>;
 };
 
 /** A server as the panel shows it: the record plus what the customer connects to. */
@@ -77,6 +79,10 @@ function toServerRecord(row: Record<string, unknown>): ServerRecord {
     planId: requiredText(row.plan_id, "servers.plan_id"),
     regionId: requiredText(row.region_id, "servers.region_id"),
     name: requiredText(row.name, "servers.name"),
+    // Older rows and the INSERT ... RETURNING paths may not carry the column.
+    settings: typeof row.settings === "object" && row.settings !== null && !Array.isArray(row.settings)
+      ? row.settings as Record<string, unknown>
+      : {},
   };
 }
 
@@ -447,7 +453,7 @@ export class PostgresProvisioningRepository {
   async listServersForOwner(ownerUserId: string): Promise<OwnedServer[]> {
     const result = await this.database.query<Record<string, unknown>>(
       `SELECT s.id::text AS id, s.owner_user_id::text AS owner_user_id, s.status,
-              s.game_id, s.software_id, s.plan_id, s.region_id, s.name,
+              s.game_id, s.software_id, s.plan_id, s.region_id, s.name, s.settings,
               s.connection_host, s.connection_port, s.created_at, s.updated_at,
               (SELECT j.kind FROM provisioning_jobs j
                 WHERE j.server_id = s.id AND j.status IN ('pending', 'leased')
@@ -495,10 +501,83 @@ export class PostgresProvisioningRepository {
     }));
   }
 
+  /**
+   * Stores new settings and queues the job that pushes them to the provider.
+   *
+   * Writing the row and queueing the job in one transaction means the panel
+   * never shows a setting the provider was never told about, and a crash
+   * between the two cannot leave them disagreeing.
+   */
+  async saveSettings(input: {
+    serverId: string;
+    ownerUserId: string;
+    settings: Record<string, unknown>;
+    allowedStatuses: readonly ServerStatus[];
+    now: Date;
+  }): Promise<
+    | { status: "queued"; jobId: string }
+    | { status: "not_found" | "not_allowed" | "conflict" }
+  > {
+    return this.database.transaction(async (transaction) => {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`server-operation:${input.serverId}`],
+      );
+
+      const owned = await transaction.query<Record<string, unknown>>(
+        `SELECT status FROM servers
+          WHERE id = $1::uuid AND owner_user_id = $2::uuid
+          FOR UPDATE`,
+        [input.serverId, input.ownerUserId],
+      );
+      const current = owned.rows[0];
+      // A stranger's server answers exactly like a missing one.
+      if (!current) return { status: "not_found" };
+      if (!input.allowedStatuses.includes(current.status as ServerStatus)) return { status: "not_allowed" };
+
+      const pending = await transaction.query(
+        `SELECT 1 FROM provisioning_jobs
+          WHERE server_id = $1::uuid AND status IN ('pending', 'leased')
+          LIMIT 1`,
+        [input.serverId],
+      );
+      if (pending.rows.length > 0) return { status: "conflict" };
+
+      await transaction.query(
+        `UPDATE servers SET settings = $2::jsonb, settings_updated_at = $3, updated_at = $3
+          WHERE id = $1::uuid`,
+        [input.serverId, JSON.stringify(input.settings), input.now],
+      );
+
+      const key = `${jobIdempotencyKey("apply_settings", input.serverId)}:${input.now.getTime()}`;
+      const job = await transaction.query<Record<string, unknown>>(
+        `INSERT INTO provisioning_jobs
+           (server_id, kind, idempotency_key, max_attempts, run_after, created_at, updated_at)
+         VALUES ($1::uuid, 'apply_settings', $2, $3, $4, $4, $4)
+         RETURNING id::text AS id`,
+        [input.serverId, key, JOB_MAX_ATTEMPTS, input.now],
+      );
+      const jobId = requiredText(job.rows[0]?.id, "provisioning_jobs.id");
+
+      await transaction.query(
+        `INSERT INTO server_events (server_id, job_id, kind, customer_message, occurred_at)
+         VALUES ($1::uuid, $2::uuid, 'apply_settings_queued', $3, $4)`,
+        [
+          input.serverId,
+          jobId,
+          "Ayarlar kaydedildi; sunucu yeni ayarlarla yeniden başlatılıyor.",
+          input.now,
+        ],
+      );
+
+      return { status: "queued", jobId };
+    });
+  }
+
   async findServer(serverId: string): Promise<ServerRecord | null> {
     const result = await this.database.query<Record<string, unknown>>(
       `SELECT id::text AS id, owner_user_id::text AS owner_user_id, status,
-              game_id, software_id, plan_id, region_id, name
+              game_id, software_id, plan_id, region_id, name, settings
          FROM servers WHERE id = $1::uuid`,
       [serverId],
     );

@@ -95,6 +95,20 @@ export async function handleServerCommand(
     if (typeof body.serverId !== "string" || !body.serverId) {
       throw new ServerFlowError(400, "SERVER_ID_REQUIRED", "Sunucu kimliği gerekli.");
     }
+
+    // Saving settings is a mutation of the same server, so it shares this
+    // route's origin check and ownership path rather than getting its own.
+    if (body.action === "save_settings") {
+      return jsonNoStore(
+        await service.saveSettings({
+          rawToken,
+          serverId: body.serverId,
+          settings: body.settings,
+        }),
+        202,
+      );
+    }
+
     if (!isServerCommand(body.command)) {
       throw new ServerFlowError(400, "UNKNOWN_COMMAND", "Bilinmeyen işlem.");
     }

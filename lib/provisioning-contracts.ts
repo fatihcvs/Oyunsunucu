@@ -13,7 +13,8 @@ export type JobKind =
   | "start_server"
   | "stop_server"
   | "restart_server"
-  | "delete_server";
+  | "delete_server"
+  | "apply_settings";
 
 export type JobStatus = "pending" | "leased" | "succeeded" | "failed" | "dead";
 

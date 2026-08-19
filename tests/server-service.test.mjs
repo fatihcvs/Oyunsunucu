@@ -28,6 +28,7 @@ function ownedServer(overrides = {}) {
 
 function buildService({ servers = [ownedServer()], session = { userId: OWNER, email: "a@b.c" }, repository = {} } = {}) {
   const enqueued = [];
+  const saved = [];
   const service = createServerService({
     auth: { async authenticateSession(token) { return token === TOKEN ? session : null; } },
     servers: {
@@ -41,10 +42,14 @@ function buildService({ servers = [ownedServer()], session = { userId: OWNER, em
         enqueued.push(input);
         return { jobId: "job-1", created: true };
       },
+      async saveSettings(input) {
+        saved.push(input);
+        return { status: "queued", jobId: "job-settings-1" };
+      },
       ...repository,
     },
   });
-  return { service, enqueued };
+  return { service, enqueued, saved };
 }
 
 test("lists the caller's servers with the commands their state allows", async () => {
@@ -150,4 +155,85 @@ test("deletion is not a customer command", () => {
   for (const status of ["online", "suspended", "failed", "deploying"]) {
     assert.equal(canCommandServer(status, "baslat") && status !== "suspended", false);
   }
+});
+
+test("the panel receives the editable fields and the current values together", async () => {
+  const { service } = buildService({ servers: [ownedServer({ settings: { difficulty: "hard" } })] });
+
+  const { servers } = await service.listServers(TOKEN);
+  const server = servers[0];
+  assert.equal(server.canEditSettings, true);
+  assert.equal(server.settings.difficulty, "hard");
+  assert.equal(server.settings.gameMode, "survival");
+  assert.ok(server.settingFields.some((field) => field.key === "maxPlayers"));
+});
+
+test("settings cannot be edited while a job is in flight", async () => {
+  const busy = buildService({ servers: [ownedServer({ pendingJobKind: "restart_server" })] });
+  const { servers } = await busy.service.listServers(TOKEN);
+  assert.equal(servers[0].canEditSettings, false);
+
+  await assert.rejects(
+    () => busy.service.saveSettings({ rawToken: TOKEN, serverId: SERVER_ID, settings: { motd: "x" } }),
+    (error) => error.status === 409 && error.code === "SERVER_BUSY",
+  );
+  assert.equal(busy.saved.length, 0);
+});
+
+test("a server mid-setup cannot take settings, because there is nothing to restart", async () => {
+  const setting = buildService({ servers: [ownedServer({ status: "provisioning" })] });
+  await assert.rejects(
+    () => setting.service.saveSettings({ rawToken: TOKEN, serverId: SERVER_ID, settings: { motd: "x" } }),
+    (error) => error.status === 409 && error.code === "SETTINGS_NOT_ALLOWED",
+  );
+  assert.equal(setting.saved.length, 0);
+});
+
+test("saved settings are validated before they reach the queue", async () => {
+  const { service, saved } = buildService();
+
+  await assert.rejects(
+    () => service.saveSettings({ rawToken: TOKEN, serverId: SERVER_ID, settings: { maxPlayers: 500 } }),
+    (error) => error.status === 400 && error.code === "INVALID_SETTING",
+  );
+  await assert.rejects(
+    () => service.saveSettings({ rawToken: TOKEN, serverId: SERVER_ID, settings: { nukeTheWorld: true } }),
+    (error) => error.status === 400 && error.code === "UNKNOWN_SETTING",
+  );
+  assert.equal(saved.length, 0);
+
+  const result = await service.saveSettings({
+    rawToken: TOKEN,
+    serverId: SERVER_ID,
+    settings: { motd: "  Riftory  ", difficulty: "hard", pvp: false },
+  });
+  assert.equal(result.saved, true);
+  assert.equal(result.jobId, "job-settings-1");
+  assert.equal(saved.length, 1);
+  // The queue receives the normalised object, never the raw request body.
+  assert.equal(saved[0].settings.motd, "Riftory");
+  assert.equal(saved[0].settings.difficulty, "hard");
+  assert.equal(saved[0].settings.pvp, false);
+  assert.equal(saved[0].settings.gameMode, "survival");
+  assert.equal(saved[0].ownerUserId, OWNER);
+});
+
+test("a stranger cannot change settings on somebody else's server", async () => {
+  const { service, saved } = buildService({
+    servers: [ownedServer({ ownerUserId: "33333333-3333-4333-8333-333333333333" })],
+  });
+  await assert.rejects(
+    () => service.saveSettings({ rawToken: TOKEN, serverId: SERVER_ID, settings: { motd: "x" } }),
+    (error) => error.status === 404 && error.code === "SERVER_NOT_FOUND",
+  );
+  assert.equal(saved.length, 0);
+});
+
+test("a signed-out caller is refused before any database work", async () => {
+  const { service, saved } = buildService();
+  await assert.rejects(
+    () => service.saveSettings({ rawToken: "yanlış", serverId: SERVER_ID, settings: {} }),
+    (error) => error.status === 401,
+  );
+  assert.equal(saved.length, 0);
 });
