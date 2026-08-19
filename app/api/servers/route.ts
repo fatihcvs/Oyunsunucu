@@ -12,6 +12,7 @@ import {
   resolveServerService,
   type ServerCompositionOverrides,
 } from "../../../lib/server-composition.ts";
+import { resolveMetricsService } from "../../../lib/metrics-composition.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +58,17 @@ export async function handleListServers(
     const service = requireServerService(environment, overrides);
     const rawToken = requireSessionToken(request);
 
-    const serverId = new URL(request.url).searchParams.get("serverId");
+    const url = new URL(request.url);
+    const serverId = url.searchParams.get("serverId");
+    if (serverId && url.searchParams.get("view") === "metrics") {
+      const metrics = resolveMetricsService(environment, overrides);
+      // Charts are an extra: an unconfigured metrics source answers with an
+      // empty view rather than taking the panel down.
+      if (metrics.status !== "ready") {
+        return jsonNoStore({ available: false, reason: metrics.status });
+      }
+      return jsonNoStore({ available: true, ...await metrics.service.readMetrics(rawToken, serverId) });
+    }
     if (serverId) {
       return jsonNoStore(await service.readServer(rawToken, serverId));
     }

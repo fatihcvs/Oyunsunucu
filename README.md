@@ -18,7 +18,7 @@ durumundadır.
 - `/minecraft-sunucu-kiralama` — Minecraft Java arama niyeti ve paket rehberi
 - `/terraria-sunucu-kiralama` — Terraria/tModLoader arama niyeti ve paket rehberi
 - `/kurulum` — dört adımlı tam sunucu yapılandırıcısı
-- `/panel` — gerçek sunucu durumu, başlat/durdur/yeniden başlat, konsol, zamanlanmış yeniden başlatma ve sunucu ayarları
+- `/panel` — gerçek sunucu durumu, kaynak kullanımı, başlat/durdur/yeniden başlat, konsol, zamanlanmış yeniden başlatma ve sunucu ayarları
 - `/giris` — magic-link isteğini gerçek uca gönderen giriş/kayıt deneyimi
 - `/giris/dogrula` — tek kullanımlık bağlantıyı yalnızca kullanıcı onayıyla tüketen adım
 - `/hesap` — kod ve canlı ortam hazırlığını ayrı gösteren güvenlik merkezi

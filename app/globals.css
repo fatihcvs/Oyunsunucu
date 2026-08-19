@@ -661,7 +661,33 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .mobilePanelTabs { display: none; }
 .panelView { margin-top: 25px; animation: stepIn .25s ease both; }
 .overviewGrid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(280px,.65fr); gap: 13px; }
-.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.scheduleCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
+.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.metricsCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
+.metricsCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.metricsCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
+.metricsCard > header > em { color: #6c7480; font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }
+.metricsGrid { padding: 18px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.metricsGrid article { padding: 15px; display: grid; align-content: start; gap: 8px; border: 1px solid var(--line2); border-radius: 12px; background: rgba(3,5,7,.4); }
+.metricsGrid article.warn { border-color: rgba(224,150,84,.32); }
+.metricsGrid small { color: #7b828c; font-size: 11px; font-weight: 720; letter-spacing: .07em; }
+.metricsGrid b { color: #d4d9de; font-size: 24px; font-weight: 620; }
+.metricsGrid p { margin: 0; color: #6a727c; font-size: 12px; line-height: 1.5; }
+.metricsGrid p em { color: #d09a66; font-style: normal; }
+.spark { width: 100%; height: 42px; }
+.spark path { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.spark.cpu path { stroke: #6fa8dc; }
+.spark.memory path { stroke: var(--orange2); }
+.sparkCeiling { stroke: rgba(224,150,84,.45); stroke-dasharray: 3 3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sparkEmpty { height: 42px; display: flex; align-items: center; color: #565e67; font-size: 11.5px; }
+.metricsPlayers { display: flex; flex-wrap: wrap; gap: 6px; min-height: 42px; align-content: flex-start; }
+.metricsPlayers span { padding: 5px 9px; border-radius: 999px; background: rgba(255,107,26,.07); color: #b3a091; font-size: 11.5px; }
+.metricsPlayers .metricsEmpty { padding: 0; background: transparent; color: #565e67; }
+.metricsCard > footer { padding: 0 18px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.metricsCard > footer button { min-height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: #98a0aa; font-size: 12px; cursor: pointer; }
+.metricsCard > footer button:hover { border-color: rgba(255,107,26,.28); color: var(--orange2); }
+.metricsCard > footer p { margin: 0; flex: 1; min-width: 220px; color: #5f676f; font-size: 11.5px; line-height: 1.5; }
+@media (max-width: 900px) { .metricsGrid { grid-template-columns: 1fr; } }
+
+.scheduleCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
 .scheduleCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .scheduleCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
 .scheduleCard > header > em { color: #6c7480; font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }

@@ -322,7 +322,10 @@ elle kapalı-beta sunucusu ayırabiliyor.
 - [x] Başlat/durdur/yeniden başlat için kilitli operasyon işleri
       (`POST /api/servers`, sunucu başına advisory lock)
 - [x] Kullanıcıya görünür olay geçmişi (operatör detayı sızdırılmadan)
-- [ ] Gerçek kaynak (CPU/RAM/oyuncu) ölçümleri
+- [x] Gerçek kaynak (CPU/RAM/oyuncu) ölçümleri: son bir saatin CPU ve bellek
+      serisi sağlayıcıdan, oyuncu listesi sunucunun kendisinden. Bellek, paketin
+      sattığı değere göre çizilir — sağlayıcının kapsayıcıya verdiği limite göre
+      değil (aşağıdaki bulguya bakınız).
 - [x] RCON üzerinden konsol ve temel oyuncu yönetimi: komut kutusu ve tek tıklık
       beyaz liste / op / kick / ban işlemleri. Konsol parolası saklanmaz,
       `AUTH_SECRET`'ten sunucu başına türetilir; bağlantı yalnızca sağlayıcının
@@ -378,7 +381,12 @@ Amaç: İlk gerçek müşteriyi kontrollü riskle kabul etmek.
 
 İşler:
 
-- Railway hard usage limit ve günlük maliyet uyarıları
+- Railway hard usage limit ve günlük maliyet uyarıları.
+  **Ölçülen bulgu (2026-08-19):** Railway oyun kapsayıcısına `MEMORY_LIMIT_GB: 8`
+  veriyor; yani "Mini 2 GB" paketinde bile kapsayıcı 8 GB'a kadar kullanabilir.
+  Gerçekte sınırlayan tek şey JVM heap'i (`MEMORY=1536M`). Panel bilinçli olarak
+  paket değerini gösterir, sağlayıcı limitini değil; ancak maliyet tarafında bu
+  bir aşırı-teslimat riskidir ve sert kaynak sınırı bu fazda kapatılmalıdır.
 - Sipariş başına tahmini marj ve gerçek sağlayıcı maliyeti
 - Sahipsiz kaynak, başarısız yedek ve uzun provisioning alarmı
 - Gizli anahtar rotasyonu, webhook secret ve erişim matrisi
