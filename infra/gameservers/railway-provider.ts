@@ -289,6 +289,35 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
       await setSleeping(spec.serverId, false, "apply_settings");
     },
 
+    /**
+     * Rewrites the size-dependent variables and cycles the service.
+     *
+     * The JVM heap is what actually bounds a Minecraft server's memory, and it
+     * is fixed at boot, so a resize is a variable change plus a restart. The
+     * volume is left alone: it holds the world, and it only ever grows.
+     */
+    async resizeServer(spec: ServerSpec) {
+      const serviceId = await findExistingService(serviceName(spec.serverId));
+      if (!serviceId) throw new ProviderError("resize_server", "Servis bulunamadı.", false);
+
+      await graphql(
+        "resize_server",
+        `mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }`,
+        {
+          input: {
+            projectId: options.projectId,
+            environmentId: options.environmentId,
+            serviceId,
+            replace: false,
+            variables: variablesFor(spec),
+          },
+        },
+      );
+
+      await setSleeping(spec.serverId, true, "resize_server");
+      await setSleeping(spec.serverId, false, "resize_server");
+    },
+
     async deleteServer(serverId: string) {
       const serviceId = await findExistingService(serviceName(serverId));
       if (!serviceId) return;

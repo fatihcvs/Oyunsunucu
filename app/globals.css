@@ -1259,6 +1259,9 @@ button:focus-visible,a:focus-visible,input:focus-visible { outline: 2px solid va
 .adminJobError { display: block; max-width: 245px; overflow: hidden; color: #8b6e6e; font: 13.2px/1.45 var(--font-geist-mono); text-overflow: ellipsis; white-space: nowrap; }.adminRetry { min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255,107,26,.18); border-radius: 7px; background: rgba(255,107,26,.055); color: var(--orange2); font-size: 13px; cursor: pointer; white-space: nowrap; }.adminRetry:disabled { opacity: .45; cursor: progress; }.adminNoAction { color: #414850; }.adminEmpty { height: 90px; color: #59616a!important; text-align: center; }
 .adminFootnote { margin-top: 18px; padding: 14px 2px; display: flex; align-items: center; gap: 22px; color: #59616a; font-size: 13.6px; }.adminFootnote span { display: inline-flex; align-items: center; gap: 6px; }.adminFootnote span:first-child { color: #858c95; }.adminFootnote p { margin: 0 0 0 auto; text-align: right; }
 .adminRetry.danger { border-color: rgba(224,84,84,.2); background: rgba(224,84,84,.06); color: #cf7676; }
+.adminPlanPicker { margin-top: 6px; max-width: 190px; height: 32px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 7px; outline: 0; background: rgba(3,5,7,.5); color: #98a0aa; font: 11.5px var(--font-geist-sans); cursor: pointer; }
+.adminPlanPicker:disabled { opacity: .5; cursor: progress; }
+.adminPlanPicker option { background: #11151a; }
 .adminRowActions { display: flex; flex-wrap: wrap; gap: 5px; }
 .adminTeamForm { padding: 18px 22px 20px; display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,.7fr) auto; align-items: end; gap: 12px 10px; border-top: 1px solid var(--line); }
 .adminTeamForm.password { grid-template-columns: repeat(3,minmax(0,1fr)) auto; }

@@ -24,6 +24,8 @@ bayrağa güvenmez. Her istek önce normal Riftory oturumunu, sonra PostgreSQL'd
 - operasyon ekibi yönetimi: mevcut ve doğrulanmış bir hesaba rol verme veya
   yetkiyi kaldırma
 - yöneticinin kendi parolasını değiştirmesi
+- sunucuyu daha büyük bir pakete taşıma: aylık fiyat farkı gösterilir, değişiklik
+  `resize_server` kuyruğuna alınır ve dünya korunur
 
 Elle ayırma bir sipariş veya ödeme kaydı üretmez. Sunucuyu doğrudan sağlayıcıda
 açmak yerine mevcut `create_server` iş kuyruğuna bırakır; dolayısıyla sağlayıcı
@@ -37,11 +39,11 @@ ayrı onay akışları gerektirir.
 
 ## Roller
 
-| Rol | Okuma | İşi yeniden deneme | Sunucu ayırma | Başlat/durdur | Silme | Üyelik yönetimi |
-|---|---:|---:|---:|---:|---:|---:|
-| `owner` | evet | evet | evet | evet | evet | evet |
-| `operator` | evet | evet | evet | evet | hayır | hayır |
-| `support` | evet | hayır | hayır | hayır | hayır | hayır |
+| Rol | Okuma | İşi yeniden deneme | Sunucu ayırma | Başlat/durdur | Paket yükseltme | Silme | Üyelik yönetimi |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `owner` | evet | evet | evet | evet | evet | evet | evet |
+| `operator` | evet | evet | evet | evet | evet | hayır | hayır |
+| `support` | evet | hayır | hayır | hayır | hayır | hayır | hayır |
 
 Her yönetici kendi parolasını değiştirebilir; başkasınınkini değiştiremez.
 
@@ -121,6 +123,9 @@ bildirir. Gizli anahtar kaynak dosyasına veya komut argümanına konmaz.
 - üyelik kaldırıldığında o hesabın tüm oturumları aynı işlemde iptal edilir
 - parola değişimi: `401 CURRENT_PASSWORD_REJECTED`, `400 WEAK_PASSWORD`,
   `400 PASSWORD_UNCHANGED` ve oran sınırında `429`
+- paket değişikliği: yalnızca yükseltme; küçültme `400 DOWNGRADE_UNSUPPORTED`,
+  aynı paket `400 PLAN_UNCHANGED`, uygun olmayan durum `409` döner. Yanıt aylık
+  katalog farkını bildirir ve tahsilat yapılmadığını açıkça söyler.
 
 `/admin` sitemap'e eklenmez, `noindex, nofollow` taşır ve `robots.txt` içinde
 ayrıca engellenir.

@@ -25,7 +25,14 @@ function dashboardData() {
       servers: { total: 1, online: 1, provisioning: 0, failed: 0 },
       jobs: { queued: 0, leased: 0, dead: 0 },
     },
-    orders: [], servers: [], jobs: [], customers: [], auditLogs: [], memberships: [],
+    orders: [],
+    servers: [{
+      serverId: SERVER_ID, customerEmail: "a@b.c", name: "Test", gameId: "minecraft",
+      softwareId: "paper", planId: "mini-2", regionId: "eu-west", source: "manual",
+      status: "online", pendingJobKind: null, connection: null,
+      createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
+    }],
+    jobs: [], customers: [], auditLogs: [], memberships: [],
     generatedAt: NOW.toISOString(),
   };
 }
@@ -34,6 +41,7 @@ function build({ role = "operator", activeSession = session, repository = {}, me
   const retried = [];
   const provisioned = [];
   const commanded = [];
+  const planChanges = [];
   const membershipCalls = [];
   const service = createAdminService({
     auth: { async authenticateSession() { return activeSession; } },
@@ -44,6 +52,10 @@ function build({ role = "operator", activeSession = session, repository = {}, me
       async commandServer(input) {
         commanded.push(input);
         return { status: "queued", jobId: JOB_ID, created: true };
+      },
+      async changePlan(input) {
+        planChanges.push(input);
+        return { status: "queued", jobId: JOB_ID, fromPlanId: "mini-2" };
       },
       async provisionServer(input) {
         provisioned.push(input);
@@ -64,7 +76,7 @@ function build({ role = "operator", activeSession = session, repository = {}, me
     },
     now: () => NOW,
   });
-  return { service, retried, provisioned, commanded, membershipCalls };
+  return { service, retried, provisioned, commanded, membershipCalls, planChanges };
 }
 
 function provisionInput(overrides = {}) {
@@ -329,6 +341,7 @@ test("the dashboard says which of the new powers the viewer actually has", async
     canProvisionServers: true,
     canCommandServers: true,
     canDeleteServers: true,
+    canChangePlans: true,
     canManageMemberships: true,
   });
 
@@ -338,6 +351,53 @@ test("the dashboard says which of the new powers the viewer actually has", async
     canProvisionServers: false,
     canCommandServers: false,
     canDeleteServers: false,
+    canChangePlans: false,
     canManageMemberships: false,
   });
+});
+
+test("a plan change reports the catalogue difference and takes no payment", async () => {
+  const { service, planChanges } = build();
+  const result = await service.changePlan("token", { serverId: SERVER_ID, planId: "starter-4" });
+
+  assert.equal(result.queued, true);
+  assert.equal(result.toPlanId, "starter-4");
+  assert.equal(result.monthlyDifference, 200);
+  assert.match(result.message, /Tahsilat yapılmadı/);
+  assert.equal(planChanges.length, 1);
+  assert.equal(planChanges[0].toPlanId, "starter-4");
+  assert.deepEqual(planChanges[0].allowedStatuses, ["online", "suspended"]);
+});
+
+test("the console refuses a downgrade before it reaches the queue", async () => {
+  const { service, planChanges } = build();
+  await assert.rejects(
+    () => service.changePlan("token", { serverId: SERVER_ID, planId: "mini-2" }),
+    (error) => error.status === 400 && error.code === "PLAN_UNCHANGED",
+  );
+  assert.equal(planChanges.length, 0);
+});
+
+test("support cannot change a plan, and a malformed id never reaches the repository", async () => {
+  const support = build({ role: "support" });
+  await assert.rejects(
+    () => support.service.changePlan("token", { serverId: SERVER_ID, planId: "starter-4" }),
+    (error) => error.status === 403 && error.code === "ADMIN_WRITE_REQUIRED",
+  );
+
+  const { service, planChanges } = build();
+  await assert.rejects(
+    () => service.changePlan("token", { serverId: "not-a-uuid", planId: "starter-4" }),
+    (error) => error.status === 400 && error.code === "INVALID_SERVER_ID",
+  );
+  assert.equal(planChanges.length, 0);
+});
+
+test("the dashboard offers each server only the plans it may move to", async () => {
+  const dashboard = await build().service.dashboard("token");
+  assert.deepEqual(
+    dashboard.upgrades[SERVER_ID].map((option) => option.planId),
+    ["starter-4", "performance-6", "community-8", "pro-12"],
+  );
+  assert.equal(dashboard.capabilities.canChangePlans, true);
 });

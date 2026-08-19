@@ -5,7 +5,18 @@ export type AdminCapabilities = {
   canProvisionServers: boolean;
   canCommandServers: boolean;
   canDeleteServers: boolean;
+  canChangePlans: boolean;
   canManageMemberships: boolean;
+};
+
+export type UpgradeOption = {
+  planId: string;
+  label: string;
+  ramGb: number;
+  storageGb: number;
+  players: string;
+  monthlyAfter: number;
+  monthlyDifference: number;
 };
 
 export type AdminServerRow = {
@@ -49,6 +60,8 @@ export type Dashboard = {
     totalMinor: number; currency: string; createdAt: string;
   }>;
   servers: AdminServerRow[];
+  /** Keyed by server id: the plans that server may move up to. */
+  upgrades: Record<string, UpgradeOption[]>;
   jobs: Array<{
     jobId: string; serverId: string | null; serverName: string | null; customerEmail: string | null;
     kind: string; status: string; attempts: number; maxAttempts: number; lastError: string | null;

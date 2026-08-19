@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Icon } from "../_components/icon";
 import { AdminRecords } from "./admin-records";
 import { AdminTeam } from "./admin-team";
-import { SERVER_ACTIONS, type AdminState, type Dashboard, type ServerAction } from "./admin-types";
+import { SERVER_ACTIONS, type AdminState, type Dashboard, type ServerAction, type UpgradeOption } from "./admin-types";
 import {
   AdminSection,
   EmptyRow,
@@ -29,6 +29,7 @@ export function AdminShell() {
   const [activeQuery, setActiveQuery] = useState("");
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [commandingServerId, setCommandingServerId] = useState<string | null>(null);
+  const [upgradingServerId, setUpgradingServerId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [customerEmail, setCustomerEmail] = useState("");
   const [serverName, setServerName] = useState("");
@@ -95,6 +96,35 @@ export function AdminShell() {
       setToast(error instanceof Error ? error.message : "Komut kuyruğa alınamadı.");
     } finally {
       setCommandingServerId(null);
+    }
+  }
+
+  async function changePlan(serverId: string, option: UpgradeOption, serverName: string) {
+    const difference = option.monthlyDifference > 0
+      ? `Aylık katalog farkı +${option.monthlyDifference} TL.`
+      : "Aylık katalog farkı yok.";
+    if (!globalThis.confirm(
+      `${serverName} sunucusu ${option.label} (${option.ramGb} GB) paketine taşınsın mı?\n\n` +
+      `${difference} Kapalı betada tahsilat yapılmaz.\n` +
+      "Sunucu yeni kaynakla yeniden başlatılacak; dünya ve bağlantı adresi korunur.",
+    )) return;
+
+    setUpgradingServerId(serverId);
+    setToast(null);
+    try {
+      const response = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ action: "change_plan", serverId, planId: option.planId }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string };
+      if (!response.ok) throw new Error(body.message ?? "Paket değiştirilemedi.");
+      setToast(body.message ?? "Paket değişikliği kuyruğa alındı.");
+      await load(activeQuery);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Paket değiştirilemedi.");
+    } finally {
+      setUpgradingServerId(null);
     }
   }
 
@@ -473,7 +503,16 @@ export function AdminShell() {
                       <td><b>{server.name}</b><code title={server.serverId}>{shortId(server.serverId)}</code></td>
                       <td>{server.customerEmail}</td>
                       <td><b>{server.gameId}</b><small>{server.softwareId}</small></td>
-                      <td><b>{server.planId}</b><small>{server.regionId}</small></td>
+                      <td>
+                        <b>{server.planId}</b>
+                        <small>{server.regionId}</small>
+                        <PlanUpgrade
+                          busy={upgradingServerId === server.serverId}
+                          canChange={dashboard.capabilities.canChangePlans && !server.pendingJobKind}
+                          onUpgrade={(option) => { void changePlan(server.serverId, option, server.name); }}
+                          options={dashboard.upgrades?.[server.serverId] ?? []}
+                        />
+                      </td>
                       <td><span className="adminSource">{server.source === "manual" ? "Manuel beta" : "Sipariş"}</span><small>{formatMoment(server.createdAt)}</small></td>
                       <td><Status value={server.status} />{server.pendingJobKind && <small>{JOB_LABEL[server.pendingJobKind] ?? server.pendingJobKind}</small>}</td>
                       <td>
@@ -609,5 +648,41 @@ function ServerActions({ busyKey, capabilities, onCommand, server }: {
         </button>
       ))}
     </div>
+  );
+}
+
+
+/**
+ * The plans this server may move up to, with what each costs per month.
+ *
+ * Downgrades are absent because the catalogue refuses them: a smaller plan
+ * carries a smaller disk, and a live world cannot be moved onto one safely.
+ */
+function PlanUpgrade({ busy, canChange, onUpgrade, options }: {
+  busy: boolean;
+  canChange: boolean;
+  onUpgrade: (option: UpgradeOption) => void;
+  options: UpgradeOption[];
+}) {
+  if (!canChange || options.length === 0) return null;
+
+  return (
+    <select
+      className="adminPlanPicker"
+      disabled={busy}
+      onChange={(event) => {
+        const option = options.find((candidate) => candidate.planId === event.target.value);
+        event.target.value = "";
+        if (option) onUpgrade(option);
+      }}
+      value=""
+    >
+      <option value="">{busy ? "Kuyruklanıyor…" : "Paketi yükselt…"}</option>
+      {options.map((option) => (
+        <option key={option.planId} value={option.planId}>
+          {option.label} · {option.ramGb} GB · +{option.monthlyDifference} TL/ay
+        </option>
+      ))}
+    </select>
   );
 }

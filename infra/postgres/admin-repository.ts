@@ -98,6 +98,10 @@ export type RetryJobOutcome =
   | { status: "queued"; jobId: string; serverId: string | null }
   | { status: "not_found" | "not_retryable" | "conflict" };
 
+export type AdminPlanChangeOutcome =
+  | { status: "queued"; jobId: string; fromPlanId: string }
+  | { status: "not_found" | "not_allowed" | "conflict" | "plan_unchanged" };
+
 export type AdminServerCommandOutcome =
   | { status: "queued"; jobId: string; created: boolean }
   | { status: "not_found" | "not_allowed" | "conflict" };
@@ -537,6 +541,85 @@ export class PostgresAdminRepository {
       );
 
       return { status: "queued", jobId, created: true };
+    });
+  }
+
+  /**
+   * Moves a server onto a different plan and queues the resize.
+   *
+   * The row and the job are written together so the panel can never show a
+   * plan the provider was never asked for. The caller has already checked the
+   * catalogue rules; this method enforces only what the database can see:
+   * the server exists, its state can take a restart, and nothing else is
+   * already running against it.
+   */
+  async changePlan(input: {
+    serverId: string;
+    toPlanId: string;
+    allowedStatuses: readonly string[];
+    actorUserId: string;
+    now: Date;
+  }): Promise<AdminPlanChangeOutcome> {
+    return this.database.transaction(async (transaction) => {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`server-operation:${input.serverId}`],
+      );
+
+      const found = await transaction.query<Record<string, unknown>>(
+        `SELECT status, plan_id FROM servers WHERE id = $1::uuid FOR UPDATE`,
+        [input.serverId],
+      );
+      const server = found.rows[0];
+      if (!server) return { status: "not_found" };
+      if (!input.allowedStatuses.includes(String(server.status))) return { status: "not_allowed" };
+      const fromPlanId = requiredText(server.plan_id, "servers.plan_id");
+      if (fromPlanId === input.toPlanId) return { status: "plan_unchanged" };
+
+      const pending = await transaction.query(
+        `SELECT 1 FROM provisioning_jobs
+          WHERE server_id = $1::uuid AND status IN ('pending', 'leased')
+          LIMIT 1`,
+        [input.serverId],
+      );
+      if (pending.rows.length > 0) return { status: "conflict" };
+
+      await transaction.query(
+        `UPDATE servers SET plan_id = $2, updated_at = $3 WHERE id = $1::uuid`,
+        [input.serverId, input.toPlanId, input.now],
+      );
+
+      const key = `${jobIdempotencyKey("resize_server", input.serverId)}:${input.now.getTime()}`;
+      const job = await transaction.query<Record<string, unknown>>(
+        `INSERT INTO provisioning_jobs
+           (server_id, kind, idempotency_key, max_attempts, run_after, created_at, updated_at)
+         VALUES ($1::uuid, 'resize_server', $2, $3, $4, $4, $4)
+         RETURNING id::text AS id`,
+        [input.serverId, key, JOB_MAX_ATTEMPTS, input.now],
+      );
+      const jobId = requiredText(job.rows[0]?.id, "provisioning_jobs.id");
+
+      await transaction.query(
+        `INSERT INTO server_events
+           (server_id, job_id, kind, customer_message, operator_detail, occurred_at)
+         VALUES ($1::uuid, $2::uuid, 'resize_server_queued', $3, $4, $5)`,
+        [
+          input.serverId,
+          jobId,
+          "Paket değişikliği sıraya alındı; sunucu yeni kaynakla yeniden başlatılacak.",
+          `actor=${input.actorUserId} from=${fromPlanId} to=${input.toPlanId}`,
+          input.now,
+        ],
+      );
+      await transaction.query(
+        `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, metadata, occurred_at)
+         VALUES ($1::uuid, 'admin.server.plan_changed', 'server', $2,
+                 jsonb_build_object('from_plan_id', $3::text, 'to_plan_id', $4::text,
+                                    'job_id', $5::text), $6)`,
+        [input.actorUserId, input.serverId, fromPlanId, input.toPlanId, jobId, input.now],
+      );
+
+      return { status: "queued", jobId, fromPlanId };
     });
   }
 

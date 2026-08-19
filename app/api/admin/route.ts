@@ -80,6 +80,13 @@ export async function handleAdminAction(
       );
     }
 
+    if (body.action === "change_plan") {
+      return jsonNoStore(
+        await service.changePlan(token, { serverId: body.serverId, planId: body.planId }),
+        202,
+      );
+    }
+
     if (body.action === "grant_membership") {
       return jsonNoStore(await service.grantMembership(token, { email: body.email, role: body.role }));
     }

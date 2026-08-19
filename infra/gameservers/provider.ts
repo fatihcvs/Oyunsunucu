@@ -42,6 +42,14 @@ export interface GameServerProvider {
    * server should be, and a retried job converges on the same state.
    */
   applySettings(spec: ServerSpec): Promise<void>;
+  /**
+   * Moves the server onto a different resource size.
+   *
+   * Takes the whole spec for the same reason applySettings does: the runtime
+   * derives its heap from the plan at boot, so a resize is a full statement of
+   * what the server should be rather than a delta.
+   */
+  resizeServer(spec: ServerSpec): Promise<void>;
   deleteServer(serverId: string): Promise<void>;
   getConnectionInfo(serverId: string): Promise<{ host: string; port: number } | null>;
 }

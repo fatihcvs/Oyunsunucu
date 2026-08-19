@@ -14,7 +14,8 @@ export type JobKind =
   | "stop_server"
   | "restart_server"
   | "delete_server"
-  | "apply_settings";
+  | "apply_settings"
+  | "resize_server";
 
 export type JobStatus = "pending" | "leased" | "succeeded" | "failed" | "dead";
 

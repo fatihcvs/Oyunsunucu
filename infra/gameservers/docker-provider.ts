@@ -146,6 +146,11 @@ export function createDockerGameServerProvider(options: DockerProviderOptions): 
      * runtime only reads its configuration at boot. The volume is untouched, so
      * the world survives; only the container identity changes.
      */
+    /** Same recreate as a settings change; the memory flags come from the new plan. */
+    async resizeServer(spec: ServerSpec) {
+      await this.applySettings(spec);
+    },
+
     async applySettings(spec: ServerSpec) {
       const container = containerName(spec.serverId);
       const volume = volumeName(spec.serverId);

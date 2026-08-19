@@ -324,7 +324,10 @@ elle kapalı-beta sunucusu ayırabiliyor.
 - [ ] Yedek listeleme, oluşturma ve onaylı geri yükleme
 - [x] Sunucu ayarları: oyun bazlı ayar sözleşmesi, panelden düzenleme ve
       ayarı sağlayıcıya uygulayan kuyruk işi (`apply_settings`)
-- [ ] Paket yükseltme; fiyat farkı ve veri koruma
+- [x] Paket yükseltme: katalog kurallı yükseltme, aylık fiyat farkının gösterilmesi,
+      `resize_server` kuyruk işi ve dünyanın korunması. Küçültme bilinçli olarak
+      kapalı: disk küçültmek canlı dünyayı riske atar. Tahsilat yoktur; ödeme
+      sağlayıcısı Faz 3'te bağlanana kadar yükseltme operatör işlemidir.
 - [ ] Bildirimler: kurulum, başarısızlık, yedek, ödeme, kaynak sınırı
 - [x] Yönetici paneli ilk dilimi: rol tabanlı erişim, operasyon özeti,
       sipariş/sunucu/iş arama ve başarısız işi yeniden deneme

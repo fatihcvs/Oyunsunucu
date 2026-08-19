@@ -123,6 +123,39 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
         now: now(),
       });
     },
+    resize_server: async (job) => {
+      const serverId = requireServerId(job);
+      const server = await dependencies.repository.findServer(serverId);
+      if (!server) throw new ProviderError("resize_server", "Sunucu kaydı bulunamadı.", false);
+
+      const runtime = findGameRuntime(server.gameId, server.softwareId);
+      if (!runtime?.image) {
+        throw new ProviderError("resize_server", "Çalışma ortamı çözülmemiş.", false);
+      }
+      const plan = getPlan(server.planId);
+      const memoryMb = plan.ram * 1024;
+      if (memoryMb < runtime.minimumMemoryMb) {
+        throw new ProviderError("resize_server", `${server.planId} bu çalışma ortamı için yetersiz.`, false);
+      }
+
+      await dependencies.provider.resizeServer({
+        serverId,
+        name: server.name,
+        runtime,
+        memoryMb,
+        storageGb: plan.storage,
+        regionId: server.regionId,
+        settings: normalizeStoredSettings(server.gameId, memoryMb, server.settings),
+      });
+
+      await dependencies.repository.completeJob({
+        jobId: job.jobId,
+        serverId: job.serverId,
+        serverStatus: "online",
+        customerMessage: `Sunucu ${plan.label} paketine (${plan.ram} GB) taşındı.`,
+        now: now(),
+      });
+    },
     apply_settings: async (job) => {
       const serverId = requireServerId(job);
       const server = await dependencies.repository.findServer(serverId);

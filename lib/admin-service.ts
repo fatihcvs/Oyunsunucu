@@ -1,11 +1,13 @@
 import type { ActiveSessionResult } from "../infra/postgres/auth-repository.ts";
 import type {
   AdminDashboardData,
+  AdminPlanChangeOutcome,
   AdminProvisionServerOutcome,
   AdminRole,
   AdminServerCommandOutcome,
   RetryJobOutcome,
 } from "../infra/postgres/admin-repository.ts";
+import { evaluatePlanChange, upgradeOptions } from "./plan-change.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import type { JobKind } from "./provisioning-contracts.ts";
 import { isValidEmail, normalizeEmail } from "./auth-contracts.ts";
@@ -58,6 +60,13 @@ export interface AdminRepository {
     actorUserId: string;
     now: Date;
   }): Promise<AdminServerCommandOutcome>;
+  changePlan(input: {
+    serverId: string;
+    toPlanId: string;
+    allowedStatuses: readonly string[];
+    actorUserId: string;
+    now: Date;
+  }): Promise<AdminPlanChangeOutcome>;
   provisionServer(input: {
     requestId: string;
     customerEmail: string;
@@ -100,6 +109,9 @@ export const ADMIN_SERVER_COMMANDS = {
 }>;
 
 export type AdminServerCommand = keyof typeof ADMIN_SERVER_COMMANDS;
+
+/** A resize is applied by restarting, so only a running or stopped server takes one. */
+const PLAN_CHANGE_ALLOWED_STATUSES = ["online", "suspended"] as const;
 
 export function isAdminServerCommand(value: unknown): value is AdminServerCommand {
   return typeof value === "string" && value in ADMIN_SERVER_COMMANDS;
@@ -193,9 +205,19 @@ export function createAdminService(dependencies: {
             canProvisionServers: role === "owner" || role === "operator",
             canCommandServers: role === "owner" || role === "operator",
             canDeleteServers: role === "owner",
+            canChangePlans: role === "owner" || role === "operator",
             canManageMemberships: role === "owner",
           },
           catalog: provisioningCatalog(),
+          upgrades: Object.fromEntries(data.servers.map((server) => [
+            server.serverId,
+            upgradeOptions({
+              fromPlanId: server.planId,
+              regionId: server.regionId,
+              gameId: server.gameId,
+              softwareId: server.softwareId,
+            }),
+          ])),
           capacity: {
             activeServers: data.metrics.servers.total,
             limit: CLOSED_BETA_SERVER_LIMIT,
@@ -237,6 +259,68 @@ export function createAdminService(dependencies: {
           throw new AdminFlowError(409, "SERVER_JOB_IN_FLIGHT", "Bu sunucu için başka bir işlem zaten sürüyor.");
         }
         return { queued: true, jobId: outcome.jobId, command: input.command };
+      });
+    },
+
+    /**
+     * Moves a server onto a bigger plan.
+     *
+     * The catalogue decides whether the move is possible and what it costs; the
+     * console records it and queues the resize. No payment is taken here — the
+     * closed beta has no payment provider wired, and inventing a charge would
+     * be a claim the system cannot back. The price difference is reported so an
+     * operator sees exactly what the change is worth.
+     */
+    async changePlan(rawToken: string, input: { serverId: unknown; planId: unknown }) {
+      return runOperational(async () => {
+        const { session, role } = await authorize(rawToken);
+        if (role === "support") {
+          throw new AdminFlowError(403, "ADMIN_WRITE_REQUIRED", "Destek rolü paket değiştiremez.");
+        }
+        const serverId = typeof input.serverId === "string" ? input.serverId : "";
+        const toPlanId = typeof input.planId === "string" ? input.planId : "";
+        if (!UUID.test(serverId)) throw new AdminFlowError(400, "INVALID_SERVER_ID", "Sunucu kimliği geçersiz.");
+
+        const data = await dependencies.repository.loadDashboard({ query: serverId, now: now() });
+        const server = data.servers.find((candidate) => candidate.serverId === serverId);
+        if (!server) throw new AdminFlowError(404, "SERVER_NOT_FOUND", "Sunucu bulunamadı.");
+
+        const check = evaluatePlanChange({
+          fromPlanId: server.planId,
+          toPlanId,
+          regionId: server.regionId,
+          gameId: server.gameId,
+          softwareId: server.softwareId,
+        });
+        if (!check.ok) throw new AdminFlowError(400, check.code, check.message);
+
+        const outcome = await dependencies.repository.changePlan({
+          serverId,
+          toPlanId,
+          allowedStatuses: PLAN_CHANGE_ALLOWED_STATUSES,
+          actorUserId: session.userId,
+          now: now(),
+        });
+        if (outcome.status === "not_found") throw new AdminFlowError(404, "SERVER_NOT_FOUND", "Sunucu bulunamadı.");
+        if (outcome.status === "not_allowed") {
+          throw new AdminFlowError(409, "PLAN_CHANGE_NOT_ALLOWED", "Sunucu bu durumdayken paket değiştirilemez.");
+        }
+        if (outcome.status === "plan_unchanged") {
+          throw new AdminFlowError(400, "PLAN_UNCHANGED", "Sunucu zaten bu pakette.");
+        }
+        if (outcome.status !== "queued") {
+          throw new AdminFlowError(409, "SERVER_JOB_IN_FLIGHT", "Bu sunucu için başka bir işlem zaten sürüyor.");
+        }
+
+        return {
+          queued: true,
+          jobId: outcome.jobId,
+          fromPlanId: outcome.fromPlanId,
+          toPlanId,
+          monthlyDifference: check.change.monthlyDifference,
+          monthlyAfter: check.change.monthlyAfter,
+          message: `Paket ${check.change.to.label} olarak güncellendi; aylık fark ${check.change.monthlyDifference} TL. Tahsilat yapılmadı.`,
+        };
       });
     },
 
