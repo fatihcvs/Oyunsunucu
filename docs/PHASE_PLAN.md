@@ -445,20 +445,29 @@ operatör işi. Nitrado ölçeği bu üç varsayımın hepsini kaldırmayı gere
 
 İşler:
 
-- Kapasite modeli: bölge ve sağlayıcı başına toplam CPU/RAM/disk envanteri,
-  ayrılmış (reserved) ve gerçekten kullanılan kaynak ayrımı
-- Yerleştirme (placement) kararı: yeni sunucu hangi bölgeye ve hangi sağlayıcıya
-  düşecek — oyun, plan, doluluk ve maliyete göre tek bir saf fonksiyon
+- [x] Kapasite modeli: bölge başına bellek ve sunucu tavanı, taahhüt edilen
+  (reserved) kaynağın ayrı hesaplanması. Kapasite **paketlerin vaat ettiğine**
+  göre sayılır, bugün ölçülen kullanıma göre değil: 4 GB paketteki bir müşteri
+  hafta boyu 1 GB'da otursa bile dördünü isteme hakkına sahiptir.
+- [x] Yerleştirme (placement) kararı: sığan en boş bölge seçilir; müşteri bir
+  bölge seçtiyse ona uyulur ve dolu olduğunda sessizce başka bölgeye taşınmaz,
+  reddedilir. Saf fonksiyon ve testlidir.
 - Aşırı satış (overcommit) politikası ve sert tavan: bir müşterinin sunucusu
   başka müşterinin kaynağını yiyemez
-- Reconciliation döngüsü: veritabanı ile sağlayıcı gerçeğini periyodik
-  karşılaştırma; sahipsiz servis, sahipsiz volume ve kaybolmuş proxy tespiti
+- [~] Reconciliation: elle tetiklenen tek sunucu düzeltmesi yazıldı
+  (`admin.server.reconciled`); sağlayıcı hâlâ adres veriyorsa kayıt `online`
+  olarak düzeltilir. Periyodik döngü, sahipsiz servis/volume taraması ve
+  kaybolmuş proxy tespiti hâlâ bekliyor.
 - Kendi kendine iyileşme: çökmüş konteyner için sınırlı otomatik yeniden
   başlatma, tekrar eden hata için otomatik askıya alma ve operatör alarmı
 - Kaynak ölçümü: sunucu başına CPU/RAM/oyuncu telemetrisi, panelde grafik ve
   plan yükseltme önerisi için veri
 - Toplu işlemler: birden çok sunucuya sıralı, kilit korumalı bakım komutu
-- Kapalı beta sınırının kaldırılması ve yerine gerçek kapasite kontrolü
+- [x] Kapalı beta sınırının yerine gerçek kapasite kontrolü: elle kurulum artık
+  bölge kapasitesine bakar. `CLOSED_BETA_SERVER_LIMIT` yalnızca panelde bilgi
+  amaçlı duruyor.
+- [ ] Kapasite değerlerinin ölçüme dayandırılması: bugünkü `eu-west 64 GB / 20
+  sunucu` işletme kararıdır, sağlayıcının fiziksel sınırı değildir.
 
 Çıkış kapısı:
 

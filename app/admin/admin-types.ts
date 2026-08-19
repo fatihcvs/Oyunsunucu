@@ -39,7 +39,14 @@ export type AdminServerRow = {
 export type Dashboard = {
   viewer: { displayName: string; email: string; role: AdminRole };
   capabilities: AdminCapabilities;
-  capacity: { activeServers: number; limit: number };
+  capacity: {
+    activeServers: number;
+    limit: number;
+    regions: Array<{
+      regionId: string; memoryGb: number; maxServers: number;
+      usedServers: number; usedMemoryGb: number; freeMemoryGb: number; utilisation: number;
+    }>;
+  };
   catalog: {
     games: Array<{
       id: string; name: string; tag: string;

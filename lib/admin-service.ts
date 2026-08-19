@@ -11,6 +11,7 @@ import type {
 } from "../infra/postgres/admin-repository.ts";
 import { evaluatePlanChange, upgradeOptions } from "./plan-change.ts";
 import { formatMinor, toMinor } from "./order-contracts.ts";
+import { canPlaceInRegion, describeCapacity, reservedMemoryGb } from "./capacity.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import type { JobKind } from "./provisioning-contracts.ts";
 import { isValidEmail, normalizeEmail } from "./auth-contracts.ts";
@@ -147,6 +148,15 @@ export type AdminProvisionServerRequest = {
   confirmCost: unknown;
 };
 
+/** Turns the grouped rows into what the capacity model expects. */
+function toCapacityUsage(rows: AdminDashboardData["regionUsage"]) {
+  return rows.map((row) => ({
+    regionId: row.regionId,
+    servers: row.servers,
+    reservedMemoryGb: reservedMemoryGb(row.planIds),
+  }));
+}
+
 function provisioningCatalog() {
   return {
     games: ACTIVE_GAMES.map((game) => ({
@@ -243,6 +253,7 @@ export function createAdminService(dependencies: {
           capacity: {
             activeServers: data.metrics.servers.total,
             limit: CLOSED_BETA_SERVER_LIMIT,
+            regions: describeCapacity(toCapacityUsage(data.regionUsage)),
           },
           ...data,
         };
@@ -576,6 +587,16 @@ export function createAdminService(dependencies: {
         const plan = HOSTING_PLANS.find((candidate) => candidate.id === planId);
         if (!runtime?.image || !plan || plan.ram * 1_024 < runtime.minimumMemoryMb) {
           throw new AdminFlowError(400, "PLAN_TOO_SMALL", "Seçilen paket bu çalışma ortamı için yetersiz.");
+        }
+
+        // Capacity is per region: a global count says nothing about whether the
+        // region the customer picked can actually hold another server.
+        const usage = toCapacityUsage(
+          (await dependencies.repository.loadDashboard({ query: "", now: now() })).regionUsage,
+        );
+        const placement = canPlaceInRegion({ regionId, planId, usage });
+        if (!placement.ok) {
+          throw new AdminFlowError(409, placement.code, placement.message);
         }
 
         const outcome = await dependencies.repository.provisionServer({

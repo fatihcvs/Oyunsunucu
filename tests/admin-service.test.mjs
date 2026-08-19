@@ -33,6 +33,7 @@ function dashboardData() {
       createdAt: NOW.toISOString(), updatedAt: NOW.toISOString(),
     }],
     jobs: [], customers: [], auditLogs: [], memberships: [],
+    regionUsage: [{ regionId: "eu-west", servers: 1, planIds: ["mini-2"] }],
     generatedAt: NOW.toISOString(),
   };
 }
@@ -520,4 +521,38 @@ test("support cannot correct a server record", async () => {
     (error) => error.status === 403 && error.code === "ADMIN_WRITE_REQUIRED",
   );
   assert.equal(support.reconciled.length, 0);
+});
+
+test("the dashboard reports capacity per region, computed from committed plans", async () => {
+  const dashboard = await build().service.dashboard("token");
+  const region = dashboard.capacity.regions.find((entry) => entry.regionId === "eu-west");
+
+  assert.ok(region, "eu-west kapasitesi raporlanmalı");
+  assert.equal(region.usedServers, 1);
+  assert.equal(region.usedMemoryGb, 2, "mini-2 iki gigabayt taahhüt eder");
+  assert.equal(region.freeMemoryGb, region.memoryGb - 2);
+});
+
+test("provisioning is refused when the chosen region has no room", async () => {
+  // Fills eu-west past its server ceiling.
+  const crowded = build({
+    repository: {
+      async loadDashboard() {
+        return {
+          ...dashboardData(),
+          regionUsage: [{
+            regionId: "eu-west",
+            servers: 20,
+            planIds: Array.from({ length: 20 }, () => "mini-2"),
+          }],
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => crowded.service.provisionServer("token", provisionInput()),
+    (error) => error.status === 409 && error.code === "REGION_FULL",
+  );
+  assert.equal(crowded.provisioned.length, 0, "kapasite yoksa sağlayıcıya gidilmemeli");
 });

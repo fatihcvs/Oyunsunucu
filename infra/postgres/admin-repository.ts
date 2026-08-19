@@ -92,12 +92,20 @@ export type AdminDashboardData = {
   customers: AdminCustomerRow[];
   auditLogs: AdminAuditRow[];
   memberships: AdminMembershipRow[];
+  /** Live servers grouped by region, so capacity is computed from what exists. */
+  regionUsage: RegionUsageRow[];
   generatedAt: string;
 };
 
 export type RetryJobOutcome =
   | { status: "queued"; jobId: string; serverId: string | null }
   | { status: "not_found" | "not_retryable" | "conflict" };
+
+export type RegionUsageRow = {
+  regionId: string;
+  servers: number;
+  planIds: string[];
+};
 
 export type AdminReconcileOutcome =
   | { status: "aligned"; from: string; to: string }
@@ -191,6 +199,7 @@ export class PostgresAdminRepository {
       customers,
       auditLogs,
       memberships,
+      regionUsage,
     ] = await Promise.all([
       this.database.query<Record<string, unknown>>(
         `SELECT count(*)::text AS total,
@@ -293,6 +302,14 @@ export class PostgresAdminRepository {
           WHERE u.deleted_at IS NULL
           ORDER BY m.created_at`,
       ),
+      // Deleted servers hold nothing; everything else is committed capacity,
+      // including a server that is stopped or still being set up.
+      this.database.query<Record<string, unknown>>(
+        `SELECT region_id, count(*)::text AS servers, array_agg(plan_id) AS plan_ids
+           FROM servers
+          WHERE status <> 'deleted'
+          GROUP BY region_id`,
+      ),
     ]);
 
     const userMetric = users.rows[0] ?? {};
@@ -390,6 +407,11 @@ export class PostgresAdminRepository {
         role: adminRole(row.role),
         hasOwnPassword: row.has_own_password === true,
         createdAt: instant(row.created_at, "admin_memberships.created_at"),
+      })),
+      regionUsage: regionUsage.rows.map((row) => ({
+        regionId: requiredText(row.region_id, "servers.region_id"),
+        servers: count(row.servers),
+        planIds: Array.isArray(row.plan_ids) ? row.plan_ids.map(String) : [],
       })),
       generatedAt: input.now.toISOString(),
     };

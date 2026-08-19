@@ -571,6 +571,19 @@ export function AdminShell() {
             </div>
           </AdminSection>
 
+          <section aria-label="Bölge kapasitesi" className="adminCapacityGrid">
+            {(dashboard.capacity.regions ?? []).map((region) => (
+              <article className={region.utilisation >= 0.9 ? "full" : ""} key={region.regionId}>
+                <small>{region.regionId.toUpperCase()}</small>
+                <b>{region.usedServers} / {region.maxServers} sunucu</b>
+                <div className="adminCapacityBar">
+                  <i style={{ width: `${Math.round(region.utilisation * 100)}%` }} />
+                </div>
+                <p>{region.usedMemoryGb} / {region.memoryGb} GB taahhüt · {region.freeMemoryGb} GB boş</p>
+              </article>
+            ))}
+          </section>
+
           <AdminRecords
             dashboard={dashboard}
             onChanged={() => load(activeQuery)}
