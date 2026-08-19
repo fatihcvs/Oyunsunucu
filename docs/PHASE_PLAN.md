@@ -454,10 +454,12 @@ operatör işi. Nitrado ölçeği bu üç varsayımın hepsini kaldırmayı gere
   reddedilir. Saf fonksiyon ve testlidir.
 - Aşırı satış (overcommit) politikası ve sert tavan: bir müşterinin sunucusu
   başka müşterinin kaynağını yiyemez
-- [~] Reconciliation: elle tetiklenen tek sunucu düzeltmesi yazıldı
-  (`admin.server.reconciled`); sağlayıcı hâlâ adres veriyorsa kayıt `online`
-  olarak düzeltilir. Periyodik döngü, sahipsiz servis/volume taraması ve
-  kaybolmuş proxy tespiti hâlâ bekliyor.
+- [x] Reconciliation döngüsü: worker her turda en uzun süredir doğrulanmamış
+  sunucuyu alır (`NULLS FIRST`, `SKIP LOCKED`), sağlayıcıya sorar ve kayıt
+  farklıysa düzeltir. Kurulum/silme sürerken dokunmaz: o geçişin sahibi ilgili
+  iştir. Elle tetiklenen tek sunucu düzeltmesi de duruyor.
+- [ ] Sahipsiz servis/volume taraması ve kaybolmuş proxy tespiti: sağlayıcıda
+  olup veritabanında karşılığı olmayan kaynakların raporlanması.
 - Kendi kendine iyileşme: çökmüş konteyner için sınırlı otomatik yeniden
   başlatma, tekrar eden hata için otomatik askıya alma ve operatör alarmı
 - Kaynak ölçümü: sunucu başına CPU/RAM/oyuncu telemetrisi, panelde grafik ve

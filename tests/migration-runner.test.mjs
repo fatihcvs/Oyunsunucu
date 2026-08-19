@@ -113,6 +113,7 @@ test("keeps the checked-in migration files loadable and ordered", async () => {
     "0012_job_kinds",
     "0013_server_schedules",
     "0014_backup_job_kind",
+    "0015_server_reconciliation",
   ]);
   assert.ok(files.every((migration) => migration.sql.includes("BEGIN;")));
 });

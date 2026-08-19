@@ -728,6 +728,80 @@ export class PostgresProvisioningRepository {
     });
   }
 
+  /**
+   * Takes the server that has gone longest without being compared to reality.
+   *
+   * `NULLS FIRST` puts never-checked servers ahead of stale ones, and
+   * `SKIP LOCKED` means several workers sweep the fleet together without ever
+   * checking the same server twice. The timestamp moves inside the same
+   * transaction, so a crash mid-check costs one cycle rather than looping on
+   * the same row forever.
+   */
+  async claimServerForReconcile(input: { now: Date; staleAfterMs: number }): Promise<ServerRecord | null> {
+    return this.database.transaction(async (transaction) => {
+      const cutoff = new Date(input.now.getTime() - input.staleAfterMs);
+      const due = await transaction.query<Record<string, unknown>>(
+        `SELECT id::text AS id, owner_user_id::text AS owner_user_id, status,
+                game_id, software_id, plan_id, region_id, name, settings
+           FROM servers
+          WHERE status <> 'deleted'
+            AND (reconciled_at IS NULL OR reconciled_at <= $1)
+          ORDER BY reconciled_at NULLS FIRST
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED`,
+        [cutoff],
+      );
+      const row = due.rows[0];
+      if (!row) return null;
+
+      await transaction.query(
+        `UPDATE servers SET reconciled_at = $2 WHERE id = $1::uuid`,
+        [requiredText(row.id, "servers.id"), input.now],
+      );
+      return toServerRecord(row);
+    });
+  }
+
+  /**
+   * Writes the provider's truth over a record that has drifted.
+   *
+   * Deliberately outside the state machine: the machine describes how a server
+   * moves through its own lifecycle, while this corrects a record that no
+   * longer matches reality — and no legal transition leads out of `failed`.
+   * Both states go into the event log so a correction is never silent.
+   */
+  async reconcileServerStatus(input: {
+    serverId: string;
+    observedStatus: ServerStatus;
+    reason: string;
+    now: Date;
+  }): Promise<{ changed: boolean; from: string }> {
+    return this.database.transaction(async (transaction) => {
+      const found = await transaction.query<Record<string, unknown>>(
+        `SELECT status FROM servers WHERE id = $1::uuid FOR UPDATE`,
+        [input.serverId],
+      );
+      const from = found.rows[0] ? String(found.rows[0].status) : "";
+      if (!from || from === input.observedStatus) return { changed: false, from };
+
+      await transaction.query(
+        `UPDATE servers SET status = $2, updated_at = $3 WHERE id = $1::uuid`,
+        [input.serverId, input.observedStatus, input.now],
+      );
+      await transaction.query(
+        `INSERT INTO server_events (server_id, kind, customer_message, operator_detail, occurred_at)
+         VALUES ($1::uuid, 'reconciled', $2, $3, $4)`,
+        [
+          input.serverId,
+          "Sunucu durumu sağlayıcıdaki gerçek durumla eşitlendi.",
+          `${input.reason} from=${from} to=${input.observedStatus}`,
+          input.now,
+        ],
+      );
+      return { changed: true, from };
+    });
+  }
+
   async findServer(serverId: string): Promise<ServerRecord | null> {
     const result = await this.database.query<Record<string, unknown>>(
       `SELECT id::text AS id, owner_user_id::text AS owner_user_id, status,

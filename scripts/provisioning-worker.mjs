@@ -87,10 +87,15 @@ try {
     const fired = await worker.runScheduleOnce();
     if (fired) console.log(`[riftory] zamanlanmış yeniden başlatma sıraya alındı · sunucu ${fired.serverId}`);
 
+    const corrected = await worker.runReconcileOnce();
+    if (corrected) {
+      console.log(`[riftory] durum düzeltildi · sunucu ${corrected.serverId} · ${corrected.from} → ${corrected.to}`);
+    }
+
     const worked = await worker.runOnce();
     if (once) break;
     // An empty queue must not become a busy loop against the database.
-    if (!worked && !fired) await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
+    if (!worked && !fired && !corrected) await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

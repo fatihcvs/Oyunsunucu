@@ -21,6 +21,18 @@ export type WorkerDependencies = {
   onOperationalError?: (error: unknown) => void;
 };
 
+/** How long a server may go unverified before the sweep looks at it again. */
+export const RECONCILE_INTERVAL_MS = 10 * 60_000;
+
+/**
+ * States a job is actively driving.
+ *
+ * Reconciliation must not race the work in flight: a server being created or
+ * deleted is meant to be between states, and calling that a drift would fight
+ * the job that owns it.
+ */
+const TRANSIENT_STATES = new Set(["requested", "provisioning", "deploying", "deleting"]);
+
 const CUSTOMER_MESSAGES = {
   online: "Sunucun hazır ve bağlanabilirsin.",
   retrying: "İşlem beklenenden uzun sürüyor, yeniden deneniyor.",
@@ -275,6 +287,41 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
   } satisfies Record<string, (job: ClaimedJob) => Promise<unknown>>;
 
   return {
+    /**
+     * Compares one server against the provider and corrects the record.
+     *
+     * A server the provider still gives an address for is running, whatever the
+     * database says. Only the two states the provider can actually witness are
+     * written — a server mid-setup or mid-delete is left alone, because the job
+     * driving it owns that transition.
+     */
+    async runReconcileOnce() {
+      try {
+        const server = await dependencies.repository.claimServerForReconcile({
+          now: now(),
+          staleAfterMs: RECONCILE_INTERVAL_MS,
+        });
+        if (!server) return null;
+        if (!TRANSIENT_STATES.has(server.status)) {
+          const connection = await dependencies.provider.getConnectionInfo(server.serverId);
+          const observed = connection ? "online" : "suspended";
+          const outcome = await dependencies.repository.reconcileServerStatus({
+            serverId: server.serverId,
+            observedStatus: observed,
+            reason: "reconcile=periodic",
+            now: now(),
+          });
+          if (outcome.changed) return { serverId: server.serverId, from: outcome.from, to: observed };
+        }
+        return null;
+      } catch (error) {
+        // A sweep that fails must not stop the queue draining; the next tick
+        // will pick the same server up again.
+        try { dependencies.onOperationalError?.(error); } catch { /* ignore */ }
+        return null;
+      }
+    },
+
     /**
      * Fires one due scheduled restart, if any is due.
      *

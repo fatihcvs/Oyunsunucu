@@ -275,3 +275,86 @@ test("an unauthorised backup fails once instead of retrying five times", async (
   assert.equal(failures[0].breaksServer, false);
   assert.match(failures[0].operatorDetail, /Not Authorized/);
 });
+
+test("the sweep corrects a record the provider contradicts", async () => {
+  const corrections = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: {
+      name: "test",
+      // The provider still hands back an address, so the server is up.
+      async getConnectionInfo() { return { host: "proxy.example", port: 25565 }; },
+    },
+    repository: {
+      async claimServerForReconcile() {
+        return { serverId: "server-1", status: "failed", gameId: "minecraft", softwareId: "paper", planId: "mini-2", regionId: "eu-west", name: "talatim", settings: {} };
+      },
+      async reconcileServerStatus(input) {
+        corrections.push(input);
+        return { changed: true, from: "failed" };
+      },
+    },
+  });
+
+  const result = await worker.runReconcileOnce();
+  assert.deepEqual(result, { serverId: "server-1", from: "failed", to: "online" });
+  assert.equal(corrections[0].observedStatus, "online");
+  assert.match(corrections[0].reason, /periodic/);
+});
+
+test("a server the provider no longer serves is recorded as stopped", async () => {
+  const corrections = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test", async getConnectionInfo() { return null; } },
+    repository: {
+      async claimServerForReconcile() {
+        return { serverId: "server-1", status: "online", gameId: "minecraft", softwareId: "paper", planId: "mini-2", regionId: "eu-west", name: "talatim", settings: {} };
+      },
+      async reconcileServerStatus(input) {
+        corrections.push(input);
+        return { changed: true, from: "online" };
+      },
+    },
+  });
+
+  await worker.runReconcileOnce();
+  assert.equal(corrections[0].observedStatus, "suspended");
+});
+
+test("the sweep leaves a server a job is still driving alone", async () => {
+  for (const status of ["requested", "provisioning", "deploying", "deleting"]) {
+    let asked = false;
+    const worker = createProvisioningWorker({
+      owner: "worker-1",
+      provider: {
+        name: "test",
+        async getConnectionInfo() { asked = true; return null; },
+      },
+      repository: {
+        async claimServerForReconcile() {
+          return { serverId: "server-1", status, gameId: "minecraft", softwareId: "paper", planId: "mini-2", regionId: "eu-west", name: "talatim", settings: {} };
+        },
+        async reconcileServerStatus() { throw new Error("kurulum sürerken düzeltme yapılmamalı"); },
+      },
+    });
+
+    assert.equal(await worker.runReconcileOnce(), null, `${status} durumuna dokunulmamalı`);
+    assert.equal(asked, false, `${status} için sağlayıcıya sorulmamalı`);
+  }
+});
+
+test("a sweep failure is reported but never stops the queue", async () => {
+  const seen = [];
+  const worker = createProvisioningWorker({
+    owner: "worker-1",
+    provider: { name: "test" },
+    repository: {
+      async claimServerForReconcile() { throw new Error("veritabanı yok"); },
+    },
+    onOperationalError: (error) => seen.push(error),
+  });
+
+  assert.equal(await worker.runReconcileOnce(), null);
+  assert.equal(seen.length, 1);
+});
