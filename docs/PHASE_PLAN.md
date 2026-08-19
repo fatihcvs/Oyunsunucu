@@ -322,7 +322,12 @@ elle kapalı-beta sunucusu ayırabiliyor.
       (`POST /api/servers`, sunucu başına advisory lock)
 - [x] Kullanıcıya görünür olay geçmişi (operatör detayı sızdırılmadan)
 - [ ] Gerçek kaynak (CPU/RAM/oyuncu) ölçümleri
-- [ ] RCON üzerinden konsol ve temel oyuncu yönetimi
+- [x] RCON üzerinden konsol ve temel oyuncu yönetimi: komut kutusu ve tek tıklık
+      beyaz liste / op / kick / ban işlemleri. Konsol parolası saklanmaz,
+      `AUTH_SECRET`'ten sunucu başına türetilir; bağlantı yalnızca sağlayıcının
+      özel ağı üzerindedir ve RCON portu hiçbir proxy ile dışarı açılmaz.
+      `stop`, `restart` ve `reload` panelden reddedilir: durum makinesinin
+      arkasından sunucuyu durdurmak paneli yanlış gösterir.
 - [ ] Yedek listeleme, oluşturma ve onaylı geri yükleme
 - [x] Sunucu ayarları: oyun bazlı ayar sözleşmesi, panelden düzenleme ve
       ayarı sağlayıcıya uygulayan kuyruk işi (`apply_settings`)

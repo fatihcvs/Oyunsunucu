@@ -661,7 +661,30 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .mobilePanelTabs { display: none; }
 .panelView { margin-top: 25px; animation: stepIn .25s ease both; }
 .overviewGrid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(280px,.65fr); gap: 13px; }
-.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.assistantCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg,rgba(255,107,26,.045),rgba(9,12,16,.55) 60%); overflow: hidden; }
+.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.consoleCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(6,8,11,.6); overflow: hidden; }
+.consoleCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.consoleCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
+.consoleCard > header > em { color: #6c7480; font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }
+.consoleActions { padding: 15px 18px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
+.consoleActions > input { max-width: 230px; height: 40px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 9px; outline: 0; background: rgba(3,5,7,.5); color: #c8ccd0; font: 13.5px var(--font-geist-sans); }
+.consoleActions > input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,107,26,.07); }
+.consoleActions > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.consoleActions button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 8px; background: rgba(3,5,7,.4); color: #98a0aa; font-size: 12.5px; cursor: pointer; }
+.consoleActions button:hover:not(:disabled) { border-color: rgba(255,107,26,.28); color: var(--orange2); }
+.consoleActions button:disabled { opacity: .4; cursor: not-allowed; }
+.consoleLog { padding: 15px 18px; display: grid; gap: 7px; min-height: 130px; max-height: 300px; overflow-y: auto; }
+.consoleHint { margin: 0; color: #5f676f; font-size: 12.5px; line-height: 1.6; }
+.consoleLine { margin: 0; white-space: pre-wrap; word-break: break-word; color: #a9b0b8; font: 12.5px/1.55 var(--font-geist-mono); }
+.consoleLine.command { color: var(--orange2); }
+.consoleLine.error { color: #cf7676; }
+.consoleCard form { padding: 0 18px 18px; display: flex; gap: 10px; }
+.consoleCard form input { flex: 1; min-width: 0; height: 44px; padding: 0 13px; border: 1px solid var(--line2); border-radius: 10px; outline: 0; background: rgba(3,5,7,.55); color: #c8ccd0; font: 13.5px var(--font-geist-mono); }
+.consoleCard form input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,107,26,.07); }
+.consoleCard form button { min-height: 44px; padding: 0 17px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,107,26,.24); border-radius: 10px; background: rgba(255,107,26,.08); color: var(--orange2); font-size: 13px; font-weight: 650; cursor: pointer; }
+.consoleCard form button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 650px) { .consoleCard form { flex-direction: column; } .consoleActions > input { max-width: none; } }
+
+.assistantCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg,rgba(255,107,26,.045),rgba(9,12,16,.55) 60%); overflow: hidden; }
 .assistantCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .assistantCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
 .assistantCard > header > em { color: var(--orange2); font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }

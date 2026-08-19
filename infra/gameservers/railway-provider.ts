@@ -1,5 +1,6 @@
 import { heapMegabytes } from "./runtime-catalog.ts";
 import { settingsToContainerVariables } from "../../lib/server-settings.ts";
+import { RCON_PORT, deriveRconPassword } from "./console-access.ts";
 import {
   ProviderError,
   type GameServerProvider,
@@ -16,6 +17,14 @@ export type RailwayProviderOptions = {
   /** Railway region for the game services, e.g. `europe-west4`. */
   region?: string;
   minecraftEulaAccepted: boolean;
+  /**
+   * Secret the per-server console password is derived from.
+   *
+   * Absent, the console is simply not enabled: a game server without RCON is a
+   * working server with one fewer feature, which is better than one that opens
+   * an admin port with a guessable password.
+   */
+  consoleSecret?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
 };
@@ -68,8 +77,29 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
   }
 
   /** Game-specific container variables, mirroring the certified runtimes. */
-  function variablesFor(spec: ServerSpec): Record<string, string> {
-    return { ...baseVariablesFor(spec), ...settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name) };
+  async function variablesFor(spec: ServerSpec): Promise<Record<string, string>> {
+    return {
+      ...baseVariablesFor(spec),
+      ...settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name),
+      ...await consoleVariablesFor(spec),
+    };
+  }
+
+  /**
+   * Console variables, which only the private network can reach.
+   *
+   * No TCP proxy is created for this port, so RCON is reachable from our own
+   * services and from nowhere else. The password is derived per server, so one
+   * leaked password cannot open another customer's console.
+   */
+  async function consoleVariablesFor(spec: ServerSpec): Promise<Record<string, string>> {
+    if (spec.runtime.gameId !== "minecraft" || !options.consoleSecret) return {};
+    return {
+      ENABLE_RCON: "true",
+      RCON_PORT: String(RCON_PORT),
+      RCON_PASSWORD: await deriveRconPassword(options.consoleSecret, spec.serverId),
+      BROADCAST_RCON_TO_OPS: "false",
+    };
   }
 
   function baseVariablesFor(spec: ServerSpec): Record<string, string> {
@@ -154,7 +184,7 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
       }
 
       const name = serviceName(spec.serverId);
-      const variables = variablesFor(spec);
+      const variables = await variablesFor(spec);
 
       // Adopt an existing service instead of creating a second one: a retried
       // job must not leave the customer paying for two servers.
@@ -280,7 +310,12 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
             environmentId: options.environmentId,
             serviceId,
             replace: false,
-            variables: settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name),
+            variables: {
+              ...settingsToContainerVariables(spec.runtime.gameId, spec.settings ?? {}, spec.name),
+              // Reapplied on every settings change so a server created before
+              // the console existed picks it up without a separate migration.
+              ...await consoleVariablesFor(spec),
+            },
           },
         },
       );
@@ -309,7 +344,7 @@ export function createRailwayGameServerProvider(options: RailwayProviderOptions)
             environmentId: options.environmentId,
             serviceId,
             replace: false,
-            variables: variablesFor(spec),
+            variables: await variablesFor(spec),
           },
         },
       );

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "../_components/icon";
 import { AssistantCard } from "./assistant-card";
+import { ConsoleCard } from "./console-card";
 import { ServerSettingsCard, type SettingField, type SettingValue } from "./server-settings-card";
 import { getGame, getPlan, getRegion, type GameId } from "@/lib/catalog";
 
@@ -264,6 +265,12 @@ export function LivePanel({
 
           <ServerHistory serverId={active.serverId} updatedAt={active.updatedAt} />
 
+          <ConsoleCard
+            gameId={active.gameId}
+            online={active.status === "online"}
+            serverId={active.serverId}
+          />
+
           <AssistantCard onApplied={(message) => { setToast(message); void onRefresh(); }} />
 
           <ServerSettingsCard
@@ -280,9 +287,9 @@ export function LivePanel({
           <section className="panelNotice">
             <Icon name="terminal" size={18} />
             <p>
-              <b>Konsol, yedekleme ve kaynak grafikleri bu sunucuda henüz yok.</b>
-              Kurulmadıkları için panelde gösterilmiyorlar. Yapılabilecek işlemler
-              yukarıdaki butonlarda ve ayarlar bölümünde.
+              <b>Yedekleme ve kaynak grafikleri bu sunucuda henüz yok.</b>
+              Kurulmadıkları için panelde gösterilmiyorlar. Konsol, ayarlar ve
+              yaşam döngüsü işlemleri yukarıdaki bölümlerde.
             </p>
           </section>
         </div>

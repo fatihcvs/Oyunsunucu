@@ -28,6 +28,9 @@ function buildProvider() {
       environmentId: process.env.RAILWAY_GAME_ENVIRONMENT_ID?.trim() ?? "",
       region: process.env.RAILWAY_GAME_REGION?.trim() || undefined,
       minecraftEulaAccepted: process.env.MINECRAFT_EULA_ACCEPTED === "true",
+      // The same secret the web service derives console passwords from, so
+      // what the worker writes into the container is what the panel later uses.
+      consoleSecret: process.env.AUTH_SECRET?.trim() || undefined,
     });
   }
   if (kind !== "docker") return null;
