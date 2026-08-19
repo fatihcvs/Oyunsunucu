@@ -10,7 +10,7 @@ import {
 } from "../../../../lib/auth-http.ts";
 import { buildSessionCookie } from "../../../../lib/auth-security.ts";
 import type { AuthEnvironment } from "../../../../lib/auth-runtime.ts";
-import { resolveAuthService, type AuthCompositionOverrides } from "../../../../lib/auth-composition.ts";
+import { resolveSessionAuthService, type AuthCompositionOverrides } from "../../../../lib/auth-composition.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,10 @@ export async function handlePasswordAuth(
   try {
     assertMutationRequest(request, environment.APP_ORIGIN);
 
-    const resolution = resolveAuthService(environment, overrides);
+    // Password sign-in needs a database and a session secret, not a mail
+    // provider: requiring one would keep customers out whenever delivery is off,
+    // which is exactly the state the closed beta runs in.
+    const resolution = resolveSessionAuthService(environment, overrides);
     if (resolution.status === "not_configured") {
       throw new AuthHttpError(503, "AUTH_NOT_CONFIGURED", "Hesap sistemi henüz etkin değil.");
     }

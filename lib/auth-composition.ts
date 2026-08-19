@@ -76,12 +76,13 @@ const SESSION_REQUIREMENTS = [
 ] as const;
 
 /**
- * The identity service for callers that only validate an existing session.
+ * The identity service for callers that need no delivery channel.
  *
- * Starting a sign-in needs a way to deliver it; proving who you already are does
- * not. Requiring a mail provider here would take a customer's own servers away
- * from them the moment email delivery is switched off — which is exactly the
- * state a closed beta runs in.
+ * Starting a magic-link sign-in needs a way to deliver it; proving who you
+ * already are — with a session cookie or with a password — does not. Requiring a
+ * mail provider here would take a customer's own servers away from them the
+ * moment email delivery is switched off, which is exactly the state a closed
+ * beta runs in.
  *
  * The service is built with no sign-in method bound, so a magic-link or Discord
  * call through it fails loudly rather than silently half-working.
