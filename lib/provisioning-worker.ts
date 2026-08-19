@@ -5,11 +5,17 @@ import { heapMegabytes } from "../infra/gameservers/runtime-catalog.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import { ProviderError, type GameServerProvider } from "../infra/gameservers/provider.ts";
 import type { ClaimedJob, PostgresProvisioningRepository } from "../infra/postgres/provisioning-repository.ts";
+import type { BackupStore } from "../infra/gameservers/volume-backups.ts";
+import type { GameConsole } from "../infra/gameservers/console-access.ts";
 
 export type WorkerDependencies = {
   repository: PostgresProvisioningRepository;
   provider: GameServerProvider;
   owner: string;
+  /** Absent where the provider cannot snapshot; backup jobs then fail loudly. */
+  backups?: BackupStore;
+  /** Used to flush and hold the world still while a snapshot is taken. */
+  console?: GameConsole;
   now?: () => Date;
   onOperationalError?: (error: unknown) => void;
 };
@@ -124,6 +130,60 @@ export function createProvisioningWorker(dependencies: WorkerDependencies) {
         now: now(),
       });
     },
+    /**
+     * Snapshots the world.
+     *
+     * A running Minecraft server holds unwritten chunks in memory, so a raw
+     * snapshot of the disk can miss the last few minutes and, worse, catch a
+     * region file mid-write. `save-all flush` forces everything down and
+     * `save-off` holds writes still while the provider takes the snapshot;
+     * saves are turned back on whatever happens afterwards.
+     *
+     * A stopped server needs none of that: nothing is holding the world open.
+     */
+    create_backup: async (job) => {
+      const serverId = requireServerId(job);
+      const server = await dependencies.repository.findServer(serverId);
+      if (!server) throw new ProviderError("create_backup", "Sunucu kaydı bulunamadı.", false);
+      if (!dependencies.backups) {
+        throw new ProviderError("create_backup", "Yedekleme bu ortamda yapılandırılmadı.", false);
+      }
+
+      const quiesce = server.status === "online" ? dependencies.console ?? null : null;
+      if (quiesce) {
+        await quiesce.run({ serverId, command: "save-all flush" });
+        await quiesce.run({ serverId, command: "save-off" });
+      }
+
+      try {
+        const created = await dependencies.backups.create({
+          serverId,
+          name: `${server.name} · ${now().toISOString().slice(0, 16).replace("T", " ")}`,
+        });
+        if (!created) throw new ProviderError("create_backup", "Sağlayıcı yedek oluşturmadı.", true);
+
+        await dependencies.repository.completeJob({
+          jobId: job.jobId,
+          serverId: job.serverId,
+          // A backup does not move the server: it was online before and after.
+          serverStatus: server.status,
+          customerMessage: "Yedek alındı.",
+          now: now(),
+        });
+      } finally {
+        // Leaving saves off would silently stop the world persisting, which is
+        // far worse than a failed backup — so this runs even when the snapshot
+        // throws.
+        if (quiesce) {
+          try {
+            await quiesce.run({ serverId, command: "save-on" });
+          } catch (error) {
+            try { dependencies.onOperationalError?.(error); } catch { /* ignore */ }
+          }
+        }
+      }
+    },
+
     resize_server: async (job) => {
       const serverId = requireServerId(job);
       const server = await dependencies.repository.findServer(serverId);

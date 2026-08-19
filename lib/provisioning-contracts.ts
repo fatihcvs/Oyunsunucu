@@ -15,7 +15,8 @@ export type JobKind =
   | "restart_server"
   | "delete_server"
   | "apply_settings"
-  | "resize_server";
+  | "resize_server"
+  | "create_backup";
 
 /**
  * Every job kind, as a value.
@@ -32,6 +33,7 @@ export const JOB_KINDS = [
   "delete_server",
   "apply_settings",
   "resize_server",
+  "create_backup",
 ] as const satisfies readonly JobKind[];
 
 export type JobStatus = "pending" | "leased" | "succeeded" | "failed" | "dead";

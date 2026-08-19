@@ -16,6 +16,8 @@ import { PostgresProvisioningRepository } from "../infra/postgres/provisioning-r
 import { createDockerGameServerProvider } from "../infra/gameservers/docker-provider.ts";
 import { createRailwayGameServerProvider } from "../infra/gameservers/railway-provider.ts";
 import { createProvisioningWorker } from "../lib/provisioning-worker.ts";
+import { createBackupStore } from "../infra/gameservers/volume-backups.ts";
+import { createGameConsole } from "../infra/gameservers/console-access.ts";
 
 const IDLE_POLL_MS = 5_000;
 
@@ -60,6 +62,10 @@ const worker = createProvisioningWorker({
   repository: new PostgresProvisioningRepository(database),
   provider,
   owner: `${hostname()}:${process.pid}`,
+  // Both are optional: without them backup jobs fail with a clear reason
+  // instead of the worker refusing to start.
+  backups: createBackupStore(process.env) ?? undefined,
+  console: createGameConsole(process.env) ?? undefined,
   onOperationalError: (error) => console.error("[riftory] iş hatası", error),
 });
 

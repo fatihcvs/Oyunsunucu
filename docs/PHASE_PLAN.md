@@ -336,7 +336,13 @@ elle kapalı-beta sunucusu ayırabiliyor.
       gelen zamanlama, worker'ın ayrı bir tick'te tetiklediği `restart_server` işi.
       Zaman hesabı saf bir fonksiyonda ve testli; `next_run_at` işi kuyruğa alan
       işlemin içinde ilerletildiği için bir zamanlama iki kez ateşlenemez.
-- [ ] Yedek listeleme, oluşturma ve onaylı geri yükleme
+- [x] Yedek listeleme, oluşturma ve silme: sağlayıcının disk anlık görüntüsü
+      kullanılır; dünya önce `save-all flush` + `save-off` ile sabitlenir,
+      anlık görüntü alınır ve `save-on` her durumda geri açılır. Sunucu başına
+      5 yedek sınırı vardır ve sınıra ulaşınca eski yedek sessizce silinmez.
+- [ ] Onaylı geri yükleme: mevcut dünyanın üzerine yazdığı için yeniden kimlik
+      doğrulama ve açık onay akışı gerektirir; `volumeInstanceBackupRestore`
+      hazır ama panele bağlanmadı.
 - [x] Sunucu ayarları: oyun bazlı ayar sözleşmesi, panelden düzenleme ve
       ayarı sağlayıcıya uygulayan kuyruk işi (`apply_settings`)
 - [x] Paket yükseltme: katalog kurallı yükseltme, aylık fiyat farkının gösterilmesi,

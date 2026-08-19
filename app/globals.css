@@ -661,7 +661,25 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .mobilePanelTabs { display: none; }
 .panelView { margin-top: 25px; animation: stepIn .25s ease both; }
 .overviewGrid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(280px,.65fr); gap: 13px; }
-.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.metricsCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
+.connectionCard,.quickStats article,.usageCard,.detailsCard,.activityCard,.fullConsole,.consoleHelp,.backupHero,.backupTable,.backupCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
+.backupCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.backupCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
+.backupCard > header > em { color: #6c7480; font-size: 11.5px; font-style: normal; font-weight: 700; }
+.backupList { padding: 15px 18px; display: grid; gap: 9px; }
+.backupHint { margin: 0; color: #5f676f; font-size: 12.5px; line-height: 1.6; }
+.backupList article { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--line2); border-radius: 10px; background: rgba(3,5,7,.4); }
+.backupList article > div { display: grid; gap: 3px; }
+.backupList b { color: #c8ccd0; font-size: 13.5px; font-weight: 620; }
+.backupList small { color: #6a727c; font-size: 11.5px; }
+.backupDelete { min-height: 32px; padding: 0 12px; border: 1px solid rgba(224,84,84,.2); border-radius: 8px; background: rgba(224,84,84,.06); color: #cf7676; font-size: 12px; cursor: pointer; }
+.backupDelete:disabled { opacity: .45; cursor: not-allowed; }
+.backupCard > footer { padding: 0 18px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.backupCard > footer button { min-height: 42px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(255,107,26,.24); border-radius: 9px; background: rgba(255,107,26,.08); color: var(--orange2); font-size: 13px; font-weight: 650; cursor: pointer; }
+.backupCard > footer button:disabled { opacity: .45; cursor: not-allowed; }
+.backupCard > footer p { margin: 0; flex: 1; min-width: 220px; color: #5f676f; font-size: 11.5px; line-height: 1.5; }
+@media (max-width: 650px) { .backupList article { flex-direction: column; align-items: flex-start; } }
+
+.metricsCard { grid-column: 1/-1; border: 1px solid var(--line); border-radius: 14px; background: rgba(9,12,16,.55); overflow: hidden; }
 .metricsCard > header { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .metricsCard > header > span { display: inline-flex; align-items: center; gap: 9px; color: #c6cbd1; font-size: 14px; font-weight: 650; }
 .metricsCard > header > em { color: #6c7480; font-size: 11px; font-style: normal; font-weight: 700; letter-spacing: .08em; }

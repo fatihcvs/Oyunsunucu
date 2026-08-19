@@ -13,6 +13,7 @@ import {
   type ServerCompositionOverrides,
 } from "../../../lib/server-composition.ts";
 import { resolveMetricsService } from "../../../lib/metrics-composition.ts";
+import { resolveBackupService } from "../../../lib/backup-composition.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,13 @@ export async function handleListServers(
       }
       return jsonNoStore({ available: true, ...await metrics.service.readMetrics(rawToken, serverId) });
     }
+    if (serverId && url.searchParams.get("view") === "backups") {
+      const backups = resolveBackupService(environment, overrides);
+      // Backups are an extra: an unconfigured store answers with an empty view
+      // rather than taking the panel down.
+      if (backups.status !== "ready") return jsonNoStore({ available: false, reason: backups.status });
+      return jsonNoStore({ available: true, ...await backups.service.listBackups(rawToken, serverId) });
+    }
     if (serverId) {
       return jsonNoStore(await service.readServer(rawToken, serverId));
     }
@@ -109,6 +117,19 @@ export async function handleServerCommand(
 
     // Saving settings is a mutation of the same server, so it shares this
     // route's origin check and ownership path rather than getting its own.
+    if (body.action === "create_backup" || body.action === "delete_backup") {
+      const backups = resolveBackupService(environment, overrides);
+      if (backups.status !== "ready") {
+        throw new AuthHttpError(503, "BACKUPS_NOT_BOUND", "Yedekleme bu ortamda kullanılamıyor.");
+      }
+      return jsonNoStore(
+        body.action === "create_backup"
+          ? await backups.service.createBackup(rawToken, body.serverId)
+          : await backups.service.deleteBackup(rawToken, body.serverId, body.backupId),
+        body.action === "create_backup" ? 202 : 200,
+      );
+    }
+
     if (body.action === "save_schedule") {
       return jsonNoStore(
         await service.saveSchedule({

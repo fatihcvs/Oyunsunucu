@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon, type IconName } from "../_components/icon";
 import { AssistantCard } from "./assistant-card";
 import { ConsoleCard } from "./console-card";
+import { BackupCard } from "./backup-card";
 import { MetricsCard } from "./metrics-card";
 import { ScheduleCard, type Schedule } from "./schedule-card";
 import { ServerSettingsCard, type SettingField, type SettingValue } from "./server-settings-card";
@@ -278,6 +279,11 @@ export function LivePanel({
 
           <AssistantCard onApplied={(message) => { setToast(message); void onRefresh(); }} />
 
+          <BackupCard
+            onQueued={(message) => { setToast(message); void onRefresh(); }}
+            serverId={active.serverId}
+          />
+
           <ScheduleCard
             onSaved={(message) => { setToast(message); void onRefresh(); }}
             schedule={active.schedule ?? null}
@@ -298,9 +304,9 @@ export function LivePanel({
           <section className="panelNotice">
             <Icon name="terminal" size={18} />
             <p>
-              <b>Yedekleme bu sunucuda henüz yok.</b>
-              Kurulmadığı için panelde gösterilmiyor. Kaynak kullanımı, konsol,
-              zamanlama ve ayarlar yukarıdaki bölümlerde.
+              <b>Dosya yöneticisi ve mod kurulumu bu sunucuda henüz yok.</b>
+              Kurulmadıkları için panelde gösterilmiyorlar. Kaynak kullanımı,
+              konsol, yedekler, zamanlama ve ayarlar yukarıdaki bölümlerde.
             </p>
           </section>
         </div>
