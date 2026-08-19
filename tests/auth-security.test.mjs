@@ -7,16 +7,16 @@ import {
   assertResourceOwner,
   buildExpiredSessionCookie,
   buildSessionCookie,
-  createAdminPasswordHash,
+  createPasswordHash,
   createDeviceDraftImportCommand,
   createOpaqueToken,
   createRateLimitBucketKey,
   createSecretRateLimitBucketKey,
   evaluateFixedWindowRateLimit,
-  isAdminPasswordHash,
+  isPasswordHash,
   isAllowedMutationOrigin,
   isSessionActive,
-  verifyAdminPassword,
+  verifyPassword,
 } from "../lib/auth-security.ts";
 import { DEFAULT_SERVER_DRAFT } from "../lib/catalog.ts";
 
@@ -31,15 +31,15 @@ test("creates opaque 256-bit tokens and stores only a SHA-256 representation", a
 });
 
 test("encodes admin passwords as salted PBKDF2 verifiers and checks them without plaintext storage", async () => {
-  const first = await createAdminPasswordHash("correct horse battery staple", { iterations: 210_000 });
-  const second = await createAdminPasswordHash("correct horse battery staple", { iterations: 210_000 });
+  const first = await createPasswordHash("correct horse battery staple", { iterations: 210_000 });
+  const second = await createPasswordHash("correct horse battery staple", { iterations: 210_000 });
 
   assert.match(first, /^pbkdf2-sha256\$210000\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{43}$/);
-  assert.equal(isAdminPasswordHash(first), true);
+  assert.equal(isPasswordHash(first), true);
   assert.notEqual(first, second);
-  assert.equal(await verifyAdminPassword("correct horse battery staple", first), true);
-  assert.equal(await verifyAdminPassword("wrong password", first), false);
-  assert.equal(isAdminPasswordHash("pbkdf2-sha256$1000$bad$bad"), false);
+  assert.equal(await verifyPassword("correct horse battery staple", first), true);
+  assert.equal(await verifyPassword("wrong password", first), false);
+  assert.equal(isPasswordHash("pbkdf2-sha256$1000$bad$bad"), false);
 });
 
 test("builds host-only secure session cookies and a symmetric logout cookie", () => {

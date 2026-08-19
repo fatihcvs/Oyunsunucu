@@ -6,6 +6,7 @@ export type AdminCapabilities = {
   canCommandServers: boolean;
   canDeleteServers: boolean;
   canChangePlans: boolean;
+  canAdjustBalances: boolean;
   canManageMemberships: boolean;
 };
 
@@ -69,7 +70,8 @@ export type Dashboard = {
   }>;
   customers: Array<{
     userId: string; email: string; displayName: string; status: string;
-    emailVerified: boolean; isAdmin: boolean; serverCount: number; createdAt: string;
+    emailVerified: boolean; isAdmin: boolean; serverCount: number;
+    balanceMinor: number; createdAt: string;
   }>;
   auditLogs: Array<{
     auditId: string; action: string; actorEmail: string | null;

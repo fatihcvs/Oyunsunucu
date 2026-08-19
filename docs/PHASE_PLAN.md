@@ -143,7 +143,9 @@ Amaç: Her sipariş ve sunucuyu doğrulanmış bir kullanıcıya bağlamak.
 İşler:
 
 - Railway üzerinde PostgreSQL
-- Discord OAuth ve e-posta ile güvenli giriş
+- Discord OAuth, e-posta bağlantısı ve parola ile giriş
+  (kapalı betada parola kaydı e-posta doğrulaması istemiyor; `email_verified_at`
+  kaydın açıldığı anı taşır, adresin sahipliğini kanıtlamaz)
 - E-posta doğrulama, oturum sonlandırma ve hesap kurtarma
 - Kullanıcı, oturum, sunucu taslağı, adres ve onay kayıtları
 - Sunucu tarafında sahiplik kontrolü; IDOR koruması
@@ -328,6 +330,8 @@ elle kapalı-beta sunucusu ayırabiliyor.
       `resize_server` kuyruk işi ve dünyanın korunması. Küçültme bilinçli olarak
       kapalı: disk küçültmek canlı dünyayı riske atar. Tahsilat yoktur; ödeme
       sağlayıcısı Faz 3'te bağlanana kadar yükseltme operatör işlemidir.
+- [x] Elle bakiye: operatör kuruş bazlı mağaza kredisi ekler/düşer, her hareket
+      `balance_entries` içine yazılır ve istek kimliği tekrarı engeller
 - [ ] Bildirimler: kurulum, başarısızlık, yedek, ödeme, kaynak sınırı
 - [x] Yönetici paneli ilk dilimi: rol tabanlı erişim, operasyon özeti,
       sipariş/sunucu/iş arama ve başarısız işi yeniden deneme

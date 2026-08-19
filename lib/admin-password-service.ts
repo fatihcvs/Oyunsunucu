@@ -3,13 +3,13 @@ import { isValidEmail, normalizeEmail } from "./auth-contracts.ts";
 import {
   AUTH_RATE_LIMIT_POLICIES,
   SESSION_TTL_SECONDS,
-  createAdminPasswordHash,
+  createPasswordHash,
   createOpaqueToken,
   createSecretRateLimitBucketKey,
-  isAcceptableAdminPassword,
-  isAdminPasswordHash,
+  isAcceptablePassword,
+  isPasswordHash,
   sha256Hex,
-  verifyAdminPassword,
+  verifyPassword,
   type RateLimitDecision,
   type RateLimitPolicy,
 } from "./auth-security.ts";
@@ -87,7 +87,7 @@ export function createAdminPasswordService(dependencies: {
   const bootstrapEmail = normalizeEmail(dependencies.bootstrapEmail);
   const cryptoSource = dependencies.crypto ?? globalThis.crypto;
   const now = dependencies.now ?? (() => new Date());
-  if (!isValidEmail(bootstrapEmail) || !isAdminPasswordHash(dependencies.bootstrapPasswordHash)) {
+  if (!isValidEmail(bootstrapEmail) || !isPasswordHash(dependencies.bootstrapPasswordHash)) {
     throw new TypeError("Admin parola yapılandırması geçersiz.");
   }
   if (new TextEncoder().encode(dependencies.rateLimitSecret).byteLength < 32) {
@@ -158,7 +158,7 @@ export function createAdminPasswordService(dependencies: {
 
       // PBKDF2 runs even for an unknown address so a missing account is not a cheap timing oracle.
       const usableHash = identity ? effectiveHash(email, identity.passwordHash) : null;
-      const passwordMatches = await verifyAdminPassword(
+      const passwordMatches = await verifyPassword(
         input.password,
         usableHash ?? dependencies.bootstrapPasswordHash,
         cryptoSource,
@@ -236,22 +236,22 @@ export function createAdminPasswordService(dependencies: {
         );
       }
       const currentMatches = typeof input.currentPassword === "string" &&
-        await verifyAdminPassword(input.currentPassword, currentHash, cryptoSource);
+        await verifyPassword(input.currentPassword, currentHash, cryptoSource);
       if (!currentMatches) {
         throw new AdminPasswordFlowError(401, "CURRENT_PASSWORD_REJECTED", "Mevcut parola doğrulanamadı.");
       }
-      if (!isAcceptableAdminPassword(input.newPassword)) {
+      if (!isAcceptablePassword(input.newPassword)) {
         throw new AdminPasswordFlowError(
           400,
           "WEAK_PASSWORD",
           "Yeni parola 8-128 karakter olmalı ve baştaki veya sondaki boşluk içermemelidir.",
         );
       }
-      if (await verifyAdminPassword(input.newPassword, currentHash, cryptoSource)) {
+      if (await verifyPassword(input.newPassword, currentHash, cryptoSource)) {
         throw new AdminPasswordFlowError(400, "PASSWORD_UNCHANGED", "Yeni parola mevcut paroladan farklı olmalıdır.");
       }
 
-      const passwordHash = await createAdminPasswordHash(input.newPassword, { crypto: cryptoSource });
+      const passwordHash = await createPasswordHash(input.newPassword, { crypto: cryptoSource });
       const keepSessionTokenHash = await sha256Hex(input.rawToken, cryptoSource);
       let outcome: { status: "changed"; revokedSessions: number } | { status: "not_admin" };
       try {

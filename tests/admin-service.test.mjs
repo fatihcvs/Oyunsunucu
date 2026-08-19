@@ -42,6 +42,7 @@ function build({ role = "operator", activeSession = session, repository = {}, me
   const provisioned = [];
   const commanded = [];
   const planChanges = [];
+  const balanceCalls = [];
   const membershipCalls = [];
   const service = createAdminService({
     auth: { async authenticateSession() { return activeSession; } },
@@ -56,6 +57,10 @@ function build({ role = "operator", activeSession = session, repository = {}, me
       async changePlan(input) {
         planChanges.push(input);
         return { status: "queued", jobId: JOB_ID, fromPlanId: "mini-2" };
+      },
+      async adjustBalance(input) {
+        balanceCalls.push(input);
+        return { status: "applied", balanceMinor: 15_000, previousMinor: 5_000 };
       },
       async provisionServer(input) {
         provisioned.push(input);
@@ -76,7 +81,7 @@ function build({ role = "operator", activeSession = session, repository = {}, me
     },
     now: () => NOW,
   });
-  return { service, retried, provisioned, commanded, membershipCalls, planChanges };
+  return { service, retried, provisioned, commanded, membershipCalls, planChanges, balanceCalls };
 }
 
 function provisionInput(overrides = {}) {
@@ -342,6 +347,7 @@ test("the dashboard says which of the new powers the viewer actually has", async
     canCommandServers: true,
     canDeleteServers: true,
     canChangePlans: true,
+    canAdjustBalances: true,
     canManageMemberships: true,
   });
 
@@ -352,6 +358,7 @@ test("the dashboard says which of the new powers the viewer actually has", async
     canCommandServers: false,
     canDeleteServers: false,
     canChangePlans: false,
+    canAdjustBalances: false,
     canManageMemberships: false,
   });
 });
@@ -400,4 +407,69 @@ test("the dashboard offers each server only the plans it may move to", async () 
     ["starter-4", "performance-6", "community-8", "pro-12"],
   );
   assert.equal(dashboard.capabilities.canChangePlans, true);
+});
+
+test("a manual balance change converts lira once and carries the request id", async () => {
+  const { service, balanceCalls } = build();
+  const result = await service.adjustBalance("token", {
+    userId: SERVER_ID,
+    amount: 100.5,
+    note: "  Havale  ",
+    requestId: REQUEST_ID,
+  });
+
+  assert.equal(result.applied, true);
+  assert.equal(result.balanceMinor, 15_000);
+  assert.equal(balanceCalls.length, 1);
+  assert.equal(balanceCalls[0].amountMinor, 10_050);
+  assert.equal(balanceCalls[0].note, "Havale");
+  assert.equal(balanceCalls[0].requestId, REQUEST_ID);
+  assert.equal(balanceCalls[0].actorUserId, USER_ID);
+});
+
+test("a zero, unparseable or oversized amount never reaches the ledger", async () => {
+  for (const [amount, code] of [
+    [0, "INVALID_AMOUNT"],
+    ["abc", "INVALID_AMOUNT"],
+    [250_000, "AMOUNT_TOO_LARGE"],
+    [-250_000, "AMOUNT_TOO_LARGE"],
+    [0.001, "INVALID_AMOUNT"],
+  ]) {
+    const { service, balanceCalls } = build();
+    await assert.rejects(
+      () => service.adjustBalance("token", { userId: SERVER_ID, amount, note: "", requestId: REQUEST_ID }),
+      (error) => error.status === 400 && error.code === code,
+    );
+    assert.equal(balanceCalls.length, 0);
+  }
+});
+
+test("a balance change needs a real user id and a real request id", async () => {
+  const { service, balanceCalls } = build();
+  await assert.rejects(
+    () => service.adjustBalance("token", { userId: "x", amount: 10, note: "", requestId: REQUEST_ID }),
+    (error) => error.code === "INVALID_USER_ID",
+  );
+  await assert.rejects(
+    () => service.adjustBalance("token", { userId: SERVER_ID, amount: 10, note: "", requestId: "x" }),
+    (error) => error.code === "INVALID_REQUEST_ID",
+  );
+  assert.equal(balanceCalls.length, 0);
+});
+
+test("support cannot move money, and a replay reports the balance it already produced", async () => {
+  const support = build({ role: "support" });
+  await assert.rejects(
+    () => support.service.adjustBalance("token", { userId: SERVER_ID, amount: 10, note: "", requestId: REQUEST_ID }),
+    (error) => error.status === 403 && error.code === "ADMIN_WRITE_REQUIRED",
+  );
+
+  const replayed = build({
+    repository: { async adjustBalance() { return { status: "replayed", balanceMinor: 15_000 }; } },
+  });
+  const result = await replayed.service.adjustBalance("token", {
+    userId: SERVER_ID, amount: 100, note: "", requestId: REQUEST_ID,
+  });
+  assert.equal(result.applied, false);
+  assert.match(result.message, /daha önce uygulanmış/);
 });

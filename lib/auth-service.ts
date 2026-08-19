@@ -3,17 +3,24 @@ import {
   DEFAULT_AUTH_RETURN_TO,
   createRegistrationIntent,
   isSafeReturnPath,
+  isValidDisplayName,
   isValidEmail,
+  normalizeDisplayName,
   normalizeEmail,
 } from "./auth-contracts.ts";
 import {
   AUTH_RATE_LIMIT_POLICIES,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
   SESSION_TTL_SECONDS,
   createDeviceDraftImportCommand,
   createOpaqueToken,
+  createPasswordHash,
   createPkcePair,
   createSecretRateLimitBucketKey,
+  isAcceptablePassword,
   sha256Hex,
+  verifyPassword,
   type DeviceDraftImportCommand,
   type RateLimitDecision,
   type RateLimitPolicy,
@@ -36,6 +43,16 @@ import {
   fetchDiscordIdentity,
   type DiscordConfig,
 } from "../infra/oauth/discord.ts";
+
+/**
+ * A verifier no password can match, used when the address has no account.
+ *
+ * Comparing against a real-shaped hash keeps the wrong-address and
+ * wrong-password paths equally expensive, so response time does not reveal who
+ * has an account. The salt and digest are fixed constants, not a secret.
+ */
+const PLACEHOLDER_PASSWORD_HASH =
+  "pbkdf2-sha256$310000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 export const MAGIC_LINK_TTL_MS = 10 * 60_000;
 export const MAGIC_LINK_ACCEPTED_MESSAGE =
@@ -103,7 +120,32 @@ export interface DraftRepository {
   ): Promise<{ serverDraftId: string; replay: boolean }>;
 }
 
-export type AuthRepository = MagicLinkRepository & SessionRepository & OAuthRepository & DraftRepository;
+export interface PasswordRepository {
+  registerWithPassword(input: {
+    email: string;
+    displayName: string;
+    passwordHash: string;
+    sessionTokenHash: string;
+    sessionExpiresAt: Date;
+    ipAddress: string | null;
+    userAgent: string | null;
+    now: Date;
+  }): Promise<MagicLinkExchangeResult | { taken: true } | null>;
+  findPasswordAccount(email: string): Promise<
+    { userId: string; passwordHash: string; displayName: string } | null
+  >;
+  openPasswordAccountSession(input: {
+    userId: string;
+    sessionTokenHash: string;
+    sessionExpiresAt: Date;
+    ipAddress: string | null;
+    userAgent: string | null;
+    now: Date;
+  }): Promise<MagicLinkExchangeResult | null>;
+}
+
+export type AuthRepository = MagicLinkRepository & SessionRepository & OAuthRepository & DraftRepository
+  & PasswordRepository;
 
 export interface MagicLinkMailer {
   sendMagicLink(input: {
@@ -155,6 +197,15 @@ export type ImportDeviceDraftInput = {
   rawToken: string;
   importKey: string;
   draft: unknown;
+};
+
+export type PasswordCredentialsInput = {
+  email: unknown;
+  password: unknown;
+  displayName?: unknown;
+  clientDiscriminator: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
 };
 
 export type StartDiscordSignInInput = {
@@ -474,6 +525,108 @@ export function createAuthService(dependencies: AuthServiceDependencies) {
     authenticateSession,
 
     /** Issues a successor token for the same session family and invalidates the presented one. */
+    /**
+     * Opens an account with an email and a password, and signs it in at once.
+     *
+     * The closed beta deliberately skips address verification: the customer
+     * types a password and is in. That is a real weakening — an address nobody
+     * proved they own can hold servers — so it is recorded in the audit log and
+     * called out in the docs rather than quietly assumed.
+     */
+    async registerWithPassword(input: PasswordCredentialsInput) {
+      const attemptedAt = now();
+      await takeRateLimit("password", input.clientDiscriminator, AUTH_RATE_LIMIT_POLICIES.password, attemptedAt);
+
+      const email = typeof input.email === "string" && isValidEmail(input.email)
+        ? normalizeEmail(input.email)
+        : "";
+      const displayName = typeof input.displayName === "string" ? input.displayName.trim() : "";
+      if (!email) throw new AuthFlowError(400, "INVALID_EMAIL", "E-posta adresi geçersiz.");
+      if (!isValidDisplayName(displayName)) {
+        throw new AuthFlowError(400, "INVALID_DISPLAY_NAME", "Görünen ad 2-60 karakter olmalıdır.");
+      }
+      if (!isAcceptablePassword(input.password)) {
+        throw new AuthFlowError(
+          400,
+          "WEAK_PASSWORD",
+          `Parola ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} karakter olmalı ve baştaki veya sondaki boşluk içermemelidir.`,
+        );
+      }
+
+      const passwordHash = await createPasswordHash(input.password, { crypto: cryptoSource });
+      const sessionToken = await createOpaqueToken(cryptoSource);
+      let result: Awaited<ReturnType<PasswordRepository["registerWithPassword"]>>;
+      try {
+        result = await dependencies.repository.registerWithPassword({
+          email,
+          displayName: normalizeDisplayName(displayName),
+          passwordHash,
+          sessionTokenHash: sessionToken.tokenHash,
+          sessionExpiresAt: new Date(attemptedAt.getTime() + SESSION_TTL_SECONDS * 1_000),
+          ipAddress: input.ipAddress ?? null,
+          userAgent: input.userAgent?.trim().slice(0, 512) || null,
+          now: attemptedAt,
+        });
+      } catch (error) {
+        reportOperationalError(dependencies, error);
+        throw new AuthFlowError(503, "AUTH_UNAVAILABLE", "Kayıt şu anda tamamlanamıyor.");
+      }
+
+      if (result && "taken" in result) {
+        throw new AuthFlowError(409, "EMAIL_TAKEN", "Bu e-posta ile bir hesap zaten var. Giriş yapmayı deneyin.");
+      }
+      if (!result) throw new AuthFlowError(503, "AUTH_UNAVAILABLE", "Kayıt şu anda tamamlanamıyor.");
+
+      return { sessionToken: sessionToken.rawToken, returnTo: result.returnTo, displayName: result.displayName };
+    },
+
+    /** Signs in an existing password account; a wrong address and a wrong password answer alike. */
+    async signInWithPassword(input: PasswordCredentialsInput) {
+      const attemptedAt = now();
+      await takeRateLimit("password", input.clientDiscriminator, AUTH_RATE_LIMIT_POLICIES.password, attemptedAt);
+
+      const email = typeof input.email === "string" && isValidEmail(input.email)
+        ? normalizeEmail(input.email)
+        : "";
+      let account: Awaited<ReturnType<PasswordRepository["findPasswordAccount"]>> = null;
+      if (email) {
+        try {
+          account = await dependencies.repository.findPasswordAccount(email);
+        } catch (error) {
+          reportOperationalError(dependencies, error);
+          throw new AuthFlowError(503, "AUTH_UNAVAILABLE", "Giriş şu anda yapılamıyor.");
+        }
+      }
+
+      // PBKDF2 runs even for an unknown address so a missing account is not a
+      // cheap way to enumerate who has one.
+      const candidateHash = account?.passwordHash ?? PLACEHOLDER_PASSWORD_HASH;
+      const password = typeof input.password === "string" ? input.password : "";
+      const matches = await verifyPassword(password, candidateHash, cryptoSource);
+      if (!matches || !account) {
+        throw new AuthFlowError(401, "CREDENTIALS_REJECTED", "E-posta veya parola geçersiz.");
+      }
+
+      const sessionToken = await createOpaqueToken(cryptoSource);
+      let result: MagicLinkExchangeResult | null;
+      try {
+        result = await dependencies.repository.openPasswordAccountSession({
+          userId: account.userId,
+          sessionTokenHash: sessionToken.tokenHash,
+          sessionExpiresAt: new Date(attemptedAt.getTime() + SESSION_TTL_SECONDS * 1_000),
+          ipAddress: input.ipAddress ?? null,
+          userAgent: input.userAgent?.trim().slice(0, 512) || null,
+          now: attemptedAt,
+        });
+      } catch (error) {
+        reportOperationalError(dependencies, error);
+        throw new AuthFlowError(503, "AUTH_UNAVAILABLE", "Giriş şu anda yapılamıyor.");
+      }
+      if (!result) throw new AuthFlowError(401, "CREDENTIALS_REJECTED", "E-posta veya parola geçersiz.");
+
+      return { sessionToken: sessionToken.rawToken, returnTo: result.returnTo, displayName: result.displayName };
+    },
+
     async rotateSession(input: SessionCommandInput) {
       const session = await authenticateSession(input.rawToken);
       if (!session) return null;

@@ -511,6 +511,152 @@ export class PostgresAuthRepository {
   }
 
   /**
+   * Registers an account with a password and opens its first session.
+   *
+   * The closed beta does not verify the address: the customer picks a password
+   * and is signed in immediately. `email_verified_at` therefore records when
+   * the account was created, not that anybody proved they own the mailbox — the
+   * `password` provider row is what says how the account was opened. When
+   * verification is switched on, this is the column that has to start meaning
+   * what its name says.
+   */
+  async registerWithPassword(input: {
+    email: string;
+    displayName: string;
+    passwordHash: string;
+    sessionTokenHash: string;
+    sessionExpiresAt: Date;
+    ipAddress: string | null;
+    userAgent: string | null;
+    now: Date;
+  }): Promise<MagicLinkExchangeResult | { taken: true } | null> {
+    assertSha256(input.sessionTokenHash);
+
+    return this.database.transaction(async (transaction) => {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`identity:${input.email}`],
+      );
+
+      // An address that already has an account signs in; it does not silently
+      // acquire a second password over somebody else's identity.
+      const existing = await transaction.query<{ id: unknown }>(
+        `SELECT id::text AS id FROM users WHERE email = $1 AND deleted_at IS NULL`,
+        [input.email],
+      );
+      if (existing.rows.length > 0) return { taken: true };
+
+      const created = await transaction.query<{ id: unknown; email: unknown; display_name: unknown }>(
+        `INSERT INTO users (email, display_name, email_verified_at)
+         VALUES ($1, $2, $3)
+         RETURNING id::text AS id, email, display_name`,
+        [input.email, input.displayName, input.now],
+      );
+      const userId = requiredText(created.rows[0]?.id, "users.id");
+
+      await transaction.query(
+        `INSERT INTO auth_accounts
+           (user_id, provider, provider_account_id, provider_email, password_hash)
+         VALUES ($1::uuid, 'password', $2, $2, $3)`,
+        [userId, input.email, input.passwordHash],
+      );
+
+      const sessionResult = await transaction.query<{ id: unknown; family_id: unknown }>(
+        `INSERT INTO auth_sessions
+           (user_id, token_hash, expires_at, ip_address, user_agent)
+         VALUES ($1::uuid, decode($2, 'hex'), $3, $4, $5)
+         RETURNING id::text AS id, family_id::text AS family_id`,
+        [userId, input.sessionTokenHash, input.sessionExpiresAt, input.ipAddress, input.userAgent],
+      );
+
+      await transaction.query(
+        `INSERT INTO audit_logs
+           (actor_user_id, action, target_type, target_id, ip_address, user_agent, metadata, occurred_at)
+         VALUES ($1::uuid, 'auth.password.registered', 'user', $1::text, $2, $3,
+                 jsonb_build_object('email_verified', false), $4)`,
+        [userId, input.ipAddress, input.userAgent, input.now],
+      );
+
+      return {
+        userId,
+        sessionId: requiredText(sessionResult.rows[0]?.id, "auth_sessions.id"),
+        sessionFamilyId: requiredText(sessionResult.rows[0]?.family_id, "auth_sessions.family_id"),
+        email: requiredText(created.rows[0].email, "users.email"),
+        displayName: requiredText(created.rows[0].display_name, "users.display_name"),
+        returnTo: "/panel",
+      };
+    });
+  }
+
+  /** The stored verifier for a password account, or null when there is none. */
+  async findPasswordAccount(email: string): Promise<
+    { userId: string; passwordHash: string; displayName: string } | null
+  > {
+    const result = await this.database.query<Record<string, unknown>>(
+      `SELECT u.id::text AS user_id, a.password_hash, u.display_name
+         FROM users u
+         JOIN auth_accounts a ON a.user_id = u.id AND a.provider = 'password'
+        WHERE u.email = $1 AND u.deleted_at IS NULL AND u.status = 'active'`,
+      [email],
+    );
+    const row = result.rows[0];
+    if (!row || typeof row.password_hash !== "string") return null;
+    return {
+      userId: requiredText(row.user_id, "users.id"),
+      passwordHash: row.password_hash,
+      displayName: requiredText(row.display_name, "users.display_name"),
+    };
+  }
+
+  /** Opens a session for an account whose password the service already verified. */
+  async openPasswordAccountSession(input: {
+    userId: string;
+    sessionTokenHash: string;
+    sessionExpiresAt: Date;
+    ipAddress: string | null;
+    userAgent: string | null;
+    now: Date;
+  }): Promise<MagicLinkExchangeResult | null> {
+    assertSha256(input.sessionTokenHash);
+
+    return this.database.transaction(async (transaction) => {
+      const user = await transaction.query<{ id: unknown; email: unknown; display_name: unknown }>(
+        `SELECT id::text AS id, email, display_name
+           FROM users
+          WHERE id = $1::uuid AND deleted_at IS NULL AND status = 'active'
+          FOR UPDATE`,
+        [input.userId],
+      );
+      if (user.rows.length !== 1) return null;
+
+      const sessionResult = await transaction.query<{ id: unknown; family_id: unknown }>(
+        `INSERT INTO auth_sessions
+           (user_id, token_hash, expires_at, ip_address, user_agent)
+         VALUES ($1::uuid, decode($2, 'hex'), $3, $4, $5)
+         RETURNING id::text AS id, family_id::text AS family_id`,
+        [input.userId, input.sessionTokenHash, input.sessionExpiresAt, input.ipAddress, input.userAgent],
+      );
+      const sessionId = requiredText(sessionResult.rows[0]?.id, "auth_sessions.id");
+
+      await transaction.query(
+        `INSERT INTO audit_logs
+           (actor_user_id, action, target_type, target_id, ip_address, user_agent, metadata, occurred_at)
+         VALUES ($1::uuid, 'auth.password.consumed', 'auth_session', $2, $3, $4, '{}'::jsonb, $5)`,
+        [input.userId, sessionId, input.ipAddress, input.userAgent, input.now],
+      );
+
+      return {
+        userId: input.userId,
+        sessionId,
+        sessionFamilyId: requiredText(sessionResult.rows[0]?.family_id, "auth_sessions.family_id"),
+        email: requiredText(user.rows[0].email, "users.email"),
+        displayName: requiredText(user.rows[0].display_name, "users.display_name"),
+        returnTo: "/panel",
+      };
+    });
+  }
+
+  /**
    * Deletes identity records that can no longer be used.
    *
    * These tables only ever grow: every sign-in attempt writes a challenge, every

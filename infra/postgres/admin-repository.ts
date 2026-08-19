@@ -62,6 +62,7 @@ export type AdminCustomerRow = {
   emailVerified: boolean;
   isAdmin: boolean;
   serverCount: number;
+  balanceMinor: number;
   createdAt: string;
 };
 
@@ -97,6 +98,11 @@ export type AdminDashboardData = {
 export type RetryJobOutcome =
   | { status: "queued"; jobId: string; serverId: string | null }
   | { status: "not_found" | "not_retryable" | "conflict" };
+
+export type AdminBalanceOutcome =
+  | { status: "applied"; balanceMinor: number; previousMinor: number }
+  | { status: "user_not_found" | "insufficient_balance" }
+  | { status: "replayed"; balanceMinor: number };
 
 export type AdminPlanChangeOutcome =
   | { status: "queued"; jobId: string; fromPlanId: string }
@@ -253,9 +259,11 @@ export class PostgresAdminRepository {
                 u.email_verified_at, u.created_at,
                 (m.user_id IS NOT NULL) AS is_admin,
                 (SELECT count(*) FROM servers s
-                  WHERE s.owner_user_id = u.id AND s.status <> 'deleted')::text AS server_count
+                  WHERE s.owner_user_id = u.id AND s.status <> 'deleted')::text AS server_count,
+                COALESCE(b.balance_minor, 0)::text AS balance_minor
            FROM users u
            LEFT JOIN admin_memberships m ON m.user_id = u.id
+           LEFT JOIN user_balances b ON b.user_id = u.id
           WHERE u.deleted_at IS NULL
             AND ($1 = '' OR u.id::text ILIKE $2 OR u.email ILIKE $2 OR u.display_name ILIKE $2)
           ORDER BY u.created_at DESC
@@ -359,6 +367,7 @@ export class PostgresAdminRepository {
         emailVerified: row.email_verified_at != null,
         isAdmin: row.is_admin === true,
         serverCount: count(row.server_count),
+        balanceMinor: count(row.balance_minor),
         createdAt: instant(row.created_at, "users.created_at"),
       })),
       auditLogs: auditLogs.rows.map((row) => ({
@@ -620,6 +629,92 @@ export class PostgresAdminRepository {
       );
 
       return { status: "queued", jobId, fromPlanId };
+    });
+  }
+
+  /**
+   * Moves a customer's store credit by hand, and records why.
+   *
+   * The total and the history entry are written in one statement pair under a
+   * per-user lock, so the balance can never drift from the entries that explain
+   * it. `requestId` is unique in the table, which is what stops a double-clicked
+   * form or a retried request from crediting twice.
+   */
+  async adjustBalance(input: {
+    userId: string;
+    amountMinor: number;
+    note: string | null;
+    requestId: string;
+    actorUserId: string;
+    now: Date;
+  }): Promise<AdminBalanceOutcome> {
+    if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor === 0) {
+      throw new TypeError("Bakiye tutarı sıfırdan farklı bir tam sayı olmalıdır.");
+    }
+
+    return this.database.transaction(async (transaction) => {
+      await transaction.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`balance:${input.userId}`],
+      );
+
+      // A replayed request answers with the balance it already produced.
+      const replay = await transaction.query<Record<string, unknown>>(
+        `SELECT balance_after_minor FROM balance_entries WHERE request_id = $1`,
+        [input.requestId],
+      );
+      if (replay.rows[0]) {
+        return { status: "replayed", balanceMinor: count(replay.rows[0].balance_after_minor) };
+      }
+
+      const user = await transaction.query<Record<string, unknown>>(
+        `SELECT id::text AS id FROM users
+          WHERE id = $1::uuid AND deleted_at IS NULL AND status = 'active'
+          FOR UPDATE`,
+        [input.userId],
+      );
+      if (!user.rows[0]) return { status: "user_not_found" };
+
+      const current = await transaction.query<Record<string, unknown>>(
+        `SELECT balance_minor FROM user_balances WHERE user_id = $1::uuid FOR UPDATE`,
+        [input.userId],
+      );
+      const previousMinor = current.rows[0] ? count(current.rows[0].balance_minor) : 0;
+      const nextMinor = previousMinor + input.amountMinor;
+      // Credit cannot go below zero: a negative balance would be a debt this
+      // product has no way to collect.
+      if (nextMinor < 0) return { status: "insufficient_balance" };
+
+      await transaction.query(
+        `INSERT INTO user_balances (user_id, balance_minor, updated_at)
+         VALUES ($1::uuid, $2, $3)
+         ON CONFLICT (user_id) DO UPDATE
+           SET balance_minor = EXCLUDED.balance_minor, updated_at = EXCLUDED.updated_at`,
+        [input.userId, nextMinor, input.now],
+      );
+      await transaction.query(
+        `INSERT INTO balance_entries
+           (user_id, amount_minor, balance_after_minor, kind, note, actor_user_id, request_id, occurred_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8)`,
+        [
+          input.userId,
+          input.amountMinor,
+          nextMinor,
+          input.amountMinor > 0 ? "manual_topup" : "manual_deduction",
+          input.note,
+          input.actorUserId,
+          input.requestId,
+          input.now,
+        ],
+      );
+      await transaction.query(
+        `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, metadata, occurred_at)
+         VALUES ($1::uuid, 'admin.balance.adjusted', 'user', $2,
+                 jsonb_build_object('amount_minor', $3::bigint, 'balance_after_minor', $4::bigint), $5)`,
+        [input.actorUserId, input.userId, input.amountMinor, nextMinor, input.now],
+      );
+
+      return { status: "applied", balanceMinor: nextMinor, previousMinor };
     });
   }
 

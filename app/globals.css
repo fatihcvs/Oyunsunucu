@@ -994,6 +994,9 @@ footer { padding: 63px clamp(24px,7.5vw,120px) 24px; border-top: 1px solid var(-
 .authConsent small { display: block; margin-top: 3px; color: #4e555e; font: 12px var(--font-geist-mono); }
 .authConsent > em { grid-column: 2; margin-top: -4px; }
 .authForm .button { margin-top: 2px; font-size: 16px; }
+.authLinkAlternative { margin-top: 2px; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: #7e858f; font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.authLinkAlternative:hover { color: var(--orange2); }
+.authLinkAlternative:disabled { opacity: .5; cursor: not-allowed; }
 .authDisclosure { margin: 14px 0 0; display: flex; align-items: flex-start; gap: 7px; color: #545c66; font-size: 13.6px; line-height: 1.55; }
 .authDisclosure .icon { color: #707781; }
 .authReady { min-height: 430px; padding: 24px 7px 0; display: flex; flex-direction: column; align-items: center; text-align: center; animation: stepIn .28s ease both; }
@@ -1286,6 +1289,13 @@ button:focus-visible,a:focus-visible,input:focus-visible { outline: 2px solid va
 .adminJobError { display: block; max-width: 245px; overflow: hidden; color: #8b6e6e; font: 13.2px/1.45 var(--font-geist-mono); text-overflow: ellipsis; white-space: nowrap; }.adminRetry { min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255,107,26,.18); border-radius: 7px; background: rgba(255,107,26,.055); color: var(--orange2); font-size: 13px; cursor: pointer; white-space: nowrap; }.adminRetry:disabled { opacity: .45; cursor: progress; }.adminNoAction { color: #414850; }.adminEmpty { height: 90px; color: #59616a!important; text-align: center; }
 .adminFootnote { margin-top: 18px; padding: 14px 2px; display: flex; align-items: center; gap: 22px; color: #59616a; font-size: 13.6px; }.adminFootnote span { display: inline-flex; align-items: center; gap: 6px; }.adminFootnote span:first-child { color: #858c95; }.adminFootnote p { margin: 0 0 0 auto; text-align: right; }
 .adminRetry.danger { border-color: rgba(224,84,84,.2); background: rgba(224,84,84,.06); color: #cf7676; }
+.adminBalanceForm { margin-top: 7px; display: grid; gap: 6px; max-width: 200px; }
+.adminBalanceForm input { width: 100%; min-width: 0; height: 32px; padding: 0 9px; border: 1px solid var(--line2); border-radius: 7px; outline: 0; background: rgba(3,5,7,.5); color: #c8ccd0; font: 11.5px var(--font-geist-sans); }
+.adminBalanceForm input:focus { border-color: var(--orange); }
+.adminBalanceForm > div { display: flex; gap: 6px; }
+.adminBalanceForm button { min-height: 30px; padding: 0 10px; border: 1px solid rgba(255,107,26,.2); border-radius: 7px; background: rgba(255,107,26,.06); color: var(--orange2); font-size: 11.5px; cursor: pointer; }
+.adminBalanceForm button[type="button"] { border-color: var(--line2); background: transparent; color: #7e858f; }
+.adminBalanceForm em { color: #cf7676; font-size: 11px; font-style: normal; }
 .adminPlanPicker { margin-top: 6px; max-width: 190px; height: 32px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 7px; outline: 0; background: rgba(3,5,7,.5); color: #98a0aa; font: 11.5px var(--font-geist-sans); cursor: pointer; }
 .adminPlanPicker:disabled { opacity: .5; cursor: progress; }
 .adminPlanPicker option { background: #11151a; }

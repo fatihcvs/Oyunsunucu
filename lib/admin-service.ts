@@ -1,5 +1,6 @@
 import type { ActiveSessionResult } from "../infra/postgres/auth-repository.ts";
 import type {
+  AdminBalanceOutcome,
   AdminDashboardData,
   AdminPlanChangeOutcome,
   AdminProvisionServerOutcome,
@@ -8,6 +9,7 @@ import type {
   RetryJobOutcome,
 } from "../infra/postgres/admin-repository.ts";
 import { evaluatePlanChange, upgradeOptions } from "./plan-change.ts";
+import { formatMinor, toMinor } from "./order-contracts.ts";
 import { findGameRuntime } from "../infra/gameservers/runtime-catalog.ts";
 import type { JobKind } from "./provisioning-contracts.ts";
 import { isValidEmail, normalizeEmail } from "./auth-contracts.ts";
@@ -67,6 +69,14 @@ export interface AdminRepository {
     actorUserId: string;
     now: Date;
   }): Promise<AdminPlanChangeOutcome>;
+  adjustBalance(input: {
+    userId: string;
+    amountMinor: number;
+    note: string | null;
+    requestId: string;
+    actorUserId: string;
+    now: Date;
+  }): Promise<AdminBalanceOutcome>;
   provisionServer(input: {
     requestId: string;
     customerEmail: string;
@@ -88,6 +98,8 @@ export type AdminService = ReturnType<typeof createAdminService>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 export const CLOSED_BETA_SERVER_LIMIT = 10;
+/** One manual adjustment cannot move more than this, in lira. */
+export const MANUAL_BALANCE_LIMIT = 100_000;
 
 /**
  * What the console may do to a server, and from which state.
@@ -206,6 +218,7 @@ export function createAdminService(dependencies: {
             canCommandServers: role === "owner" || role === "operator",
             canDeleteServers: role === "owner",
             canChangePlans: role === "owner" || role === "operator",
+            canAdjustBalances: role === "owner" || role === "operator",
             canManageMemberships: role === "owner",
           },
           catalog: provisioningCatalog(),
@@ -320,6 +333,77 @@ export function createAdminService(dependencies: {
           monthlyDifference: check.change.monthlyDifference,
           monthlyAfter: check.change.monthlyAfter,
           message: `Paket ${check.change.to.label} olarak güncellendi; aylık fark ${check.change.monthlyDifference} TL. Tahsilat yapılmadı.`,
+        };
+      });
+    },
+
+    /**
+     * Adds or removes store credit by hand.
+     *
+     * Manual because the closed beta has no payment provider: an operator tops
+     * an account up after money arrives some other way. The amount is stated in
+     * lira and converted once, here, so no caller has to remember whether an
+     * interface speaks kuruş.
+     */
+    async adjustBalance(rawToken: string, input: {
+      userId: unknown;
+      amount: unknown;
+      note: unknown;
+      requestId: unknown;
+    }) {
+      return runOperational(async () => {
+        const { session, role } = await authorize(rawToken);
+        if (role === "support") {
+          throw new AdminFlowError(403, "ADMIN_WRITE_REQUIRED", "Destek rolü bakiye değiştiremez.");
+        }
+
+        const userId = typeof input.userId === "string" ? input.userId : "";
+        const requestId = typeof input.requestId === "string" ? input.requestId.trim() : "";
+        if (!UUID.test(userId)) throw new AdminFlowError(400, "INVALID_USER_ID", "Kullanıcı kimliği geçersiz.");
+        if (!UUID.test(requestId)) throw new AdminFlowError(400, "INVALID_REQUEST_ID", "İşlem kimliği geçersiz.");
+
+        const amount = typeof input.amount === "number" ? input.amount : Number(input.amount);
+        if (!Number.isFinite(amount) || amount === 0) {
+          throw new AdminFlowError(400, "INVALID_AMOUNT", "Tutar sıfırdan farklı bir sayı olmalıdır.");
+        }
+        if (Math.abs(amount) > MANUAL_BALANCE_LIMIT) {
+          throw new AdminFlowError(
+            400,
+            "AMOUNT_TOO_LARGE",
+            `Tek işlemde en fazla ${MANUAL_BALANCE_LIMIT} TL hareket yapılabilir.`,
+          );
+        }
+        const amountMinor = toMinor(amount);
+        if (amountMinor === 0) {
+          throw new AdminFlowError(400, "INVALID_AMOUNT", "Tutar en az 1 kuruş olmalıdır.");
+        }
+
+        const note = typeof input.note === "string" ? input.note.trim().slice(0, 200) : "";
+        if (CONTROL_CHARACTERS.test(note)) {
+          throw new AdminFlowError(400, "INVALID_NOTE", "Açıklama geçersiz karakter içeriyor.");
+        }
+
+        const outcome = await dependencies.repository.adjustBalance({
+          userId,
+          amountMinor,
+          note: note || null,
+          requestId: requestId.toLowerCase(),
+          actorUserId: session.userId,
+          now: now(),
+        });
+        if (outcome.status === "user_not_found") {
+          throw new AdminFlowError(404, "USER_NOT_FOUND", "Aktif bir kullanıcı bulunamadı.");
+        }
+        if (outcome.status !== "applied" && outcome.status !== "replayed") {
+          throw new AdminFlowError(409, "INSUFFICIENT_BALANCE", "Bakiye eksiye düşürülemez.");
+        }
+
+        return {
+          applied: outcome.status === "applied",
+          balanceMinor: outcome.balanceMinor,
+          message: outcome.status === "replayed"
+            ? `Bu işlem daha önce uygulanmış. Güncel bakiye ${formatMinor(outcome.balanceMinor)}.`
+            : `Bakiye güncellendi: ${formatMinor(outcome.balanceMinor)}.`,
         };
       });
     },

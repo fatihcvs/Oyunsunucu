@@ -87,6 +87,15 @@ export async function handleAdminAction(
       );
     }
 
+    if (body.action === "adjust_balance") {
+      return jsonNoStore(await service.adjustBalance(token, {
+        userId: body.userId,
+        amount: body.amount,
+        note: body.note,
+        requestId: body.requestId,
+      }));
+    }
+
     if (body.action === "grant_membership") {
       return jsonNoStore(await service.grantMembership(token, { email: body.email, role: body.role }));
     }

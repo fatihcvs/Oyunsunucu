@@ -571,7 +571,11 @@ export function AdminShell() {
             </div>
           </AdminSection>
 
-          <AdminRecords dashboard={dashboard} />
+          <AdminRecords
+            dashboard={dashboard}
+            onChanged={() => load(activeQuery)}
+            onToast={setToast}
+          />
 
           <AdminTeam
             dashboard={dashboard}

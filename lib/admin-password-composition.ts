@@ -9,7 +9,7 @@ import {
 } from "./admin-password-service.ts";
 import { resolveSessionAuthService, type AuthCompositionOverrides } from "./auth-composition.ts";
 import { isValidEmail, normalizeEmail } from "./auth-contracts.ts";
-import { isAdminPasswordHash } from "./auth-security.ts";
+import { isPasswordHash } from "./auth-security.ts";
 import { isDeliverableAppOrigin, type AuthEnvironment } from "./auth-runtime.ts";
 
 export type AdminPasswordCompositionOverrides = AuthCompositionOverrides & {
@@ -39,7 +39,7 @@ export function resolveAdminPasswordService(
     !isDeliverableAppOrigin(environment.APP_ORIGIN?.trim() ?? "") ? "APP_ORIGIN" : null,
     new TextEncoder().encode(rateLimitSecret).byteLength < 32 ? "AUTH_SECRET" : null,
     !isValidEmail(bootstrapEmail) ? "ADMIN_LOGIN_EMAIL" : null,
-    !isAdminPasswordHash(bootstrapPasswordHash) ? "ADMIN_PASSWORD_HASH" : null,
+    !isPasswordHash(bootstrapPasswordHash) ? "ADMIN_PASSWORD_HASH" : null,
   ].filter((name): name is string => Boolean(name));
   if (missing.length > 0) return { status: "not_configured", missing };
 

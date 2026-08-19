@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAdminPasswordService } from "../lib/admin-password-service.ts";
-import { createAdminPasswordHash, verifyAdminPassword } from "../lib/auth-security.ts";
+import { createPasswordHash, verifyPassword } from "../lib/auth-security.ts";
 
 const NOW = new Date("2026-08-16T20:00:00.000Z");
 const EMAIL = "fatihcvs55@gmail.com";
 const PASSWORD = "correct horse battery staple";
-const BOOTSTRAP_HASH = await createAdminPasswordHash(PASSWORD, { iterations: 210_000 });
+const BOOTSTRAP_HASH = await createPasswordHash(PASSWORD, { iterations: 210_000 });
 const OWN_PASSWORD = "kendi parolam 2026";
-const OWN_HASH = await createAdminPasswordHash(OWN_PASSWORD, { iterations: 210_000 });
+const OWN_HASH = await createPasswordHash(OWN_PASSWORD, { iterations: 210_000 });
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_TOKEN = "t".repeat(43);
 
@@ -162,8 +162,8 @@ test("stores a new verifier and keeps only the session that changed it", async (
   assert.equal(changes[0].userId, USER_ID);
   assert.match(changes[0].keepSessionTokenHash, /^[a-f0-9]{64}$/);
   assert.match(changes[0].passwordHash, /^pbkdf2-sha256\$\d+\$/);
-  assert.equal(await verifyAdminPassword("yeni parola 2026", changes[0].passwordHash), true);
-  assert.equal(await verifyAdminPassword(PASSWORD, changes[0].passwordHash), false);
+  assert.equal(await verifyPassword("yeni parola 2026", changes[0].passwordHash), true);
+  assert.equal(await verifyPassword(PASSWORD, changes[0].passwordHash), false);
   assert.equal(JSON.stringify(changes[0]).includes("yeni parola 2026"), false);
 });
 

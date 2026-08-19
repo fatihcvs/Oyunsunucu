@@ -29,6 +29,7 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
   const [consent, setConsent] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
@@ -94,17 +95,54 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
     }
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  /**
+   * Opens or resumes the account with a password.
+   *
+   * The closed beta signs the customer in immediately: no mail round trip, no
+   * verification step. The magic link stays available as a second route for
+   * anyone who would rather not set a password.
+   */
+  const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTouched(true);
     setProviderNotice("");
+    setRequestError("");
 
+    if (!isValidEmail(email) || password.length < 8) return;
+    if (mode === "register" && (!isValidDisplayName(displayName) || !consent)) return;
+
+    setSubmitState("pending");
+    try {
+      const response = await fetch("/api/auth/password", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({
+          mode,
+          email: normalizeEmail(email),
+          password,
+          displayName: mode === "register" ? displayName.trim() : undefined,
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { message?: string; returnTo?: string };
+      if (!response.ok) throw new Error(body.message ?? "İşlem tamamlanamadı.");
+
+      setPassword("");
+      globalThis.location.assign(body.returnTo ?? returnTo);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "İşlem tamamlanamadı.");
+      setSubmitState("idle");
+    }
+  };
+
+  /** The passwordless route, kept for anyone who prefers a mailed link. */
+  const sendMagicLink = () => {
+    setTouched(true);
+    setProviderNotice("");
     if (mode === "signin") {
       if (!isValidEmail(email)) return;
       void requestMagicLink({ mode, email: normalizeEmail(email) });
       return;
     }
-
     const intent = createRegistrationIntent({ displayName, email, returnTo });
     if (!intent || !consent) return;
     void requestMagicLink({ mode, email: intent.email, displayName: intent.displayName });
@@ -124,14 +162,14 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
         <p>Planını hesabına bağlamak, kurulumu izlemek ve kritik işlemleri yalnızca sana açmak için doğrulanmış bir kimlik kullanacağız.</p>
 
         <div className="authJourney" aria-label="Hesap akışı">
-          <article className="ready"><span><Icon name="users" size={18} /></span><div><small>01 · KİMLİK</small><b>Discord veya e-posta</b><p>Şifresiz, doğrulanmış giriş.</p></div><em>ARAYÜZ HAZIR</em></article>
+          <article className="ready"><span><Icon name="users" size={18} /></span><div><small>01 · KİMLİK</small><b>Discord, e-posta veya parola</b><p>Kapalı betada parola ile anında giriş.</p></div><em>ARAYÜZ HAZIR</em></article>
           <article><span><Icon name="shield" size={18} /></span><div><small>02 · OTURUM</small><b>Güvenli ve iptal edilebilir</b><p>Tek kullanımlık bağlantı, süreli oturum.</p></div><em>BAĞLANTI BEKLİYOR</em></article>
           <article><span><Icon name="server" size={18} /></span><div><small>03 · TASLAK</small><b>Hesabına bir kez aktarılır</b><p>Sunucu seçimin kaybolmadan devam eder.</p></div><em>{draftFound ? "TASLAK BULUNDU" : "HAZIR"}</em></article>
         </div>
 
         <div className="authTrust">
           <Icon name="lock" size={19} />
-          <p><b>Parola saklamıyoruz.</b> E-posta akışı tek kullanımlık bağlantıyla çalışacak; oturum belirteçlerinin yalnızca özeti veritabanında tutulacak.</p>
+          <p><b>Parolan düz metin olarak saklanmaz.</b> Yalnızca PBKDF2 ile üretilmiş doğrulayıcısı tutulur; oturum belirteçlerinin de yalnızca özeti veritabanındadır. Kapalı betada e-posta adresi doğrulanmıyor.</p>
         </div>
       </div>
 
@@ -163,22 +201,24 @@ export function AuthExperience({ initialMode, returnTo }: { initialMode: AuthMod
               {providerNotice && <p className="providerNotice" role="alert"><Icon name="lock" size={15} /> {providerNotice}</p>}
               <div className="authDivider"><span /> veya e-posta ile <span /></div>
 
-              <form className="authForm" noValidate onSubmit={submit}>
+              <form className="authForm" noValidate onSubmit={(event) => { void submitPassword(event); }}>
                 {mode === "register" && (
                   <label htmlFor="display-name"><span>Görünen ad</span><input aria-invalid={touched && !isValidDisplayName(displayName)} autoComplete="name" id="display-name" maxLength={60} onChange={(event) => setDisplayName(event.target.value)} placeholder="Sunucu yöneticisi" value={displayName} />{touched && !isValidDisplayName(displayName) && <em>2–60 karakter arasında bir ad gir.</em>}</label>
                 )}
                 <label htmlFor="auth-email"><span>E-posta adresi</span><input aria-invalid={touched && !isValidEmail(email)} autoComplete="email" id="auth-email" inputMode="email" onChange={(event) => setEmail(event.target.value)} placeholder="oyuncu@example.com" type="email" value={email} />{touched && !isValidEmail(email) && <em>Geçerli bir e-posta adresi gir.</em>}</label>
+                <label htmlFor="auth-password"><span>Parola</span><input aria-invalid={touched && password.length > 0 && password.length < 8} autoComplete={mode === "register" ? "new-password" : "current-password"} id="auth-password" maxLength={128} minLength={8} onChange={(event) => setPassword(event.target.value)} placeholder="En az 8 karakter" type="password" value={password} />{touched && password.length < 8 && <em>Parola en az 8 karakter olmalı.</em>}</label>
                 {mode === "register" && (
                   <label className="authConsent"><input checked={consent} onChange={(event) => setConsent(event.target.checked)} type="checkbox" /><span>Hesabım ve hizmet bildirimleri için verilerimin işlenmesini kabul ediyorum. <small>{CURRENT_CONSENT_VERSION}</small></span>{touched && !consent && <em>Hesap oluşturmak için zorunlu onayı işaretle.</em>}</label>
                 )}
-                <button className="button large full" disabled={submitState === "pending"} type="submit">{submitState === "pending" ? "Gönderiliyor…" : mode === "signin" ? "Güvenli bağlantı iste" : "Hesabı doğrulamaya başla"}<Icon name="arrow" size={18} /></button>
+                <button className="button large full" disabled={submitState === "pending"} type="submit">{submitState === "pending" ? "Gönderiliyor…" : mode === "signin" ? "Giriş yap" : "Hesabı oluştur"}<Icon name="arrow" size={18} /></button>
                 {requestError && <p className="providerNotice" role="alert"><Icon name="lock" size={15} /> {requestError}</p>}
+                <button className="authLinkAlternative" disabled={submitState === "pending"} onClick={sendMagicLink} type="button">Parola yerine e-posta bağlantısı gönder</button>
               </form>
               <p className="authDisclosure"><Icon name="shield" size={14} /> İstek yalnızca bu siteden gönderilir. Canlı teslimat yayın ortamına bağlıdır; kapalıyken adresin işlenmeden açık bir hata döner.</p>
             </>
           )}
         </section>
-        <div className="authMeta"><span><Icon name="shield" size={14} /> Tek kullanımlık bağlantı</span><span><Icon name="clock" size={14} /> 10 dakika hedef süre</span><span><Icon name="lock" size={14} /> Güvenli çerez</span></div>
+        <div className="authMeta"><span><Icon name="shield" size={14} /> Parola veya tek kullanımlık bağlantı</span><span><Icon name="clock" size={14} /> 10 dakika hedef süre</span><span><Icon name="lock" size={14} /> Güvenli çerez</span></div>
       </div>
     </section>
   );

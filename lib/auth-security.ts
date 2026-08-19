@@ -49,6 +49,7 @@ export const AUTH_RATE_LIMIT_POLICIES = {
   discordStart: { maxAttempts: 20, windowMs: 15 * 60_000, blockMs: 15 * 60_000 },
   callback: { maxAttempts: 10, windowMs: 10 * 60_000, blockMs: 30 * 60_000 },
   adminPassword: { maxAttempts: 5, windowMs: 15 * 60_000, blockMs: 30 * 60_000 },
+  password: { maxAttempts: 10, windowMs: 15 * 60_000, blockMs: 15 * 60_000 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -116,8 +117,8 @@ async function deriveAdminPassword(
   return new Uint8Array(bits);
 }
 
-/** Railway stores this encoded verifier; the real admin password is never persisted by the app. */
-export async function createAdminPasswordHash(
+/** The encoded verifier stored for an account; the plaintext password is never persisted. */
+export async function createPasswordHash(
   password: string,
   options: { iterations?: number; crypto?: Crypto } = {},
 ) {
@@ -135,20 +136,20 @@ export async function createAdminPasswordHash(
   return `${ADMIN_PASSWORD_ALGORITHM}$${iterations}$${bytesToBase64Url(salt)}$${bytesToBase64Url(hash)}`;
 }
 
-export const ADMIN_PASSWORD_MIN_LENGTH = 8;
-export const ADMIN_PASSWORD_MAX_LENGTH = 128;
+export const PASSWORD_MIN_LENGTH = 8;
+export const PASSWORD_MAX_LENGTH = 128;
 
 /**
- * What the panel accepts as a new admin password.
+ * What the product accepts as a password, for customers and operators alike.
  *
  * Deliberately a length-and-shape rule rather than a character-class rule: a
  * long passphrase beats a short password with a symbol in it, and control
  * characters are refused because they survive neither a form nor a shell.
  */
-export function isAcceptableAdminPassword(value: unknown): value is string {
+export function isAcceptablePassword(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const characters = [...value];
-  if (characters.length < ADMIN_PASSWORD_MIN_LENGTH || characters.length > ADMIN_PASSWORD_MAX_LENGTH) {
+  if (characters.length < PASSWORD_MIN_LENGTH || characters.length > PASSWORD_MAX_LENGTH) {
     return false;
   }
   // Surrounding whitespace survives a form field but not a copy-paste, so it is refused rather than trimmed away.
@@ -159,11 +160,11 @@ export function isAcceptableAdminPassword(value: unknown): value is string {
   });
 }
 
-export function isAdminPasswordHash(value: string) {
+export function isPasswordHash(value: string) {
   return parseAdminPasswordHash(value) !== null;
 }
 
-export async function verifyAdminPassword(
+export async function verifyPassword(
   password: string,
   encoded: string,
   cryptoSource: Crypto = globalThis.crypto,

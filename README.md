@@ -28,14 +28,15 @@ durumundadır.
 - `/api/auth/session` — kullanıcının kendi oturum durumu; kimlik değerleri döndürmez
 - `/api/auth/session/refresh` — oturumu aynı aile içinde döndürür
 - `/api/auth/signout` — tek cihazdan veya tüm cihazlardan çıkış
+- `/api/auth/password` — e-posta ve parolayla kayıt/giriş (kapalı betada doğrulama yok)
 - `/api/auth/drafts/import` — cihazdaki sunucu taslağını hesaba bir kez taşır
 - `/api/auth/discord/start` ve `/api/auth/discord/callback` — PKCE'li Discord girişi
 - `/api/orders` — oturum açmış müşteri için sipariş açar; tutarı katalogdan hesaplar
 - `/api/payments/webhook` — imzayla doğrulanan, tekrar teslime kapalı ödeme bildirimi
 - `/api/health` — veritabanı erişimini de sınayan dağıtım sağlık kontrolü
 - `/admin` — üyelik tablosuyla korunan operasyon ve provisioning yönetim yüzü
-- `/api/admin` — admin özeti, arama, sunucu komutları, üyelik yönetimi ve
-  başarısız işi kontrollü yeniden deneme
+- `/api/admin` — admin özeti, arama, sunucu komutları, paket yükseltme, elle
+  bakiye ekleme, üyelik yönetimi ve başarısız işi kontrollü yeniden deneme
 - `/api/admin/session` — yalnızca üyeliği olan hesaba oturum açan admin parola girişi
 - `/api/admin/password` — yöneticinin kendi parolasını değiştirmesi
 - `/api/assistant` — doğal dil isteğini onaya sunulan bir öneriye çeviren asistan (OpenAI)
